@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentFlow MVP</title>
+    <script src="/vendor/react.production.min.js"></script>
+    <script src="/vendor/react-dom.production.min.js"></script>
+    <script src="/vendor/babel.min.js"></script>
+    <script src="/vendor/index.js"></script>
+    <link rel="stylesheet" href="/vendor/style.css">
+    <link rel="stylesheet" href="/vendor/base.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; height: 100vh; display: flex; flex-direction: column; }
+        
+        /* 顶部栏 */
+        .header { background: #1e293b; padding: 12px 20px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #334155; }
+        .header h1 { color: #38bdf8; font-size: 18px; font-weight: 600; }
+        .header .status { font-size: 12px; color: #94a3b8; }
+
+        /* 主布局 */
+        .main { display: flex; flex: 1; overflow: hidden; }
+
+        /* 左侧面板 */
+        .sidebar { width: 260px; background: #1e293b; border-right: 1px solid #334155; display: flex; flex-direction: column; overflow-y: auto; }
+        .sidebar-section { border-bottom: 1px solid #334155; flex-shrink: 0; }
+        .sidebar-header { padding: 10px 14px; font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; }
+        .sidebar-header button { background: #38bdf8; color: #0f172a; border: none; border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer; font-weight: 600; }
+        .sidebar-header button:hover { background: #7dd3fc; }
+        .sidebar-list { overflow-y: auto; max-height: 180px; }
+        .sidebar-item { padding: 8px 14px; cursor: pointer; font-size: 13px; border-left: 3px solid transparent; transition: all 0.15s; }
+        .sidebar-item:hover { background: #334155; }
+        .sidebar-item.active { background: #334155; border-left-color: #38bdf8; color: #38bdf8; }
+        .sidebar-item .sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+        .sidebar-item .badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-left: 6px; }
+        .badge-dev { background: #164e63; color: #22d3ee; }
+        .badge-fix { background: #4c1d95; color: #a78bfa; }
+        .badge-review { background: #713f12; color: #fbbf24; }
+
+        /* 状态徽标 */
+        .status-badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 500; }
+        .status-pending { background: #334155; color: #94a3b8; }
+        .status-running { background: #164e63; color: #22d3ee; }
+        .status-completed { background: #14532d; color: #4ade80; }
+        .status-failed { background: #7f1d1d; color: #f87171; }
+        .status-cancelled { background: #475569; color: #cbd5e1; }
+        .status-waiting_approval { background: #713f12; color: #fbbf24; }
+        .status-skipped { background: #334155; color: #64748b; }
+
+        /* 右侧主区域 */
+        .content { flex: 1; padding: 20px; overflow-y: auto; }
+        .content h2 { color: #e2e8f0; font-size: 20px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .content .empty { color: #64748b; text-align: center; margin-top: 80px; font-size: 14px; }
+
+        /* 任务详情 */
+        .task-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .task-header h2 { margin-bottom: 0; }
+
+        .steps-panel { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+        .step-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px 16px; }
+        .step-card .step-header { display: flex; justify-content: space-between; align-items: center; }
+        .step-card .step-title { font-size: 14px; font-weight: 500; }
+        .step-card .step-input { font-size: 12px; color: #94a3b8; margin-top: 6px; }
+        .step-card .step-output { font-size: 12px; color: #4ade80; margin-top: 4px; white-space: pre-wrap; max-height: 120px; overflow-y: auto; background: #0f172a; padding: 8px; border-radius: 4px; margin-top: 8px; }
+
+        /* 实时日志 */
+        .log-panel { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-bottom: 16px; max-height: 200px; overflow-y: auto; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; line-height: 1.5; }
+        .log-panel .log-line { padding: 1px 0; }
+        .log-thinking { color: #94a3b8; }
+        .log-progress { color: #38bdf8; }
+        .log-error { color: #f87171; }
+        .log-approval { color: #fbbf24; }
+        .log-completed { color: #4ade80; }
+
+        /* 审批卡片 */
+        .approval-card { background: #1e293b; border: 1px solid #fbbf24; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+        .approval-card .approval-title { color: #fbbf24; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+        .approval-card .approval-desc { font-size: 12px; color: #94a3b8; margin-bottom: 12px; white-space: pre-wrap; max-height: 150px; overflow-y: auto; }
+        .approval-card .approval-actions { display: flex; gap: 8px; }
+        .btn-approve { background: #16a34a; color: white; border: none; border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .btn-approve:hover { background: #22c55e; }
+        .btn-reject { background: #dc2626; color: white; border: none; border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .btn-reject:hover { background: #ef4444; }
+
+        /* 快照卡片 */
+        .snapshot-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .snapshot-card .snap-info { font-size: 12px; }
+        .snapshot-card .snap-type { font-weight: 600; color: #38bdf8; }
+        .snapshot-card .snap-hash { font-family: monospace; color: #94a3b8; font-size: 11px; }
+        .btn-rollback { background: #7c3aed; color: white; border: none; border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 11px; font-weight: 500; }
+        .btn-rollback:hover { background: #8b5cf6; }
+
+        /* 调试面板 */
+        .debug-panel { background: #1e293b; border: 1px solid #7c3aed; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .debug-panel h3 { color: #a78bfa; font-size: 14px; margin-bottom: 8px; }
+        .debug-panel .bp-list { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+        .bp-tag { background: #4c1d95; color: #a78bfa; border-radius: 4px; padding: 2px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+        .bp-tag:hover { background: #6d28d9; }
+
+        /* JSON 详情 */
+        .json-view { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 16px; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; overflow-y: auto; max-height: 400px; color: #94a3b8; line-height: 1.6; }
+
+        /* Tab 切换 */
+        .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid #334155; }
+        .tab { padding: 8px 16px; font-size: 13px; cursor: pointer; color: #94a3b8; border-bottom: 2px solid transparent; transition: all 0.15s; }
+        .tab:hover { color: #e2e8f0; }
+        .tab.active { color: #38bdf8; border-bottom-color: #38bdf8; }
+
+        /* 弹框 */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+        .modal { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; width: 480px; max-height: 80vh; overflow-y: auto; }
+        .modal h3 { color: #38bdf8; margin-bottom: 16px; font-size: 16px; }
+        .modal label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; margin-top: 12px; }
+        .modal input, .modal textarea, .modal select { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px 12px; color: #e2e8f0; font-size: 13px; outline: none; }
+        .modal input:focus, .modal textarea:focus, .modal select:focus { border-color: #38bdf8; }
+        .modal textarea { height: 60px; resize: vertical; }
+        .modal select option { background: #1e293b; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+        .modal-actions button { padding: 6px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .btn-primary { background: #38bdf8; color: #0f172a; }
+        .btn-primary:hover { background: #7dd3fc; }
+        .btn-secondary { background: #334155; color: #e2e8f0; }
+        .btn-secondary:hover { background: #475569; }
+
+        .hidden { display: none !important; }
+
+        /* DAG 编辑器 */
+        .dag-editor { position: relative; width: 100%; height: 500px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; overflow: hidden; }
+        .dag-toolbar { position: absolute; top: 8px; left: 8px; z-index: 10; display: flex; gap: 6px; }
+        .dag-toolbar button { background: #334155; color: #e2e8f0; border: 1px solid #475569; border-radius: 4px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+        .dag-toolbar button:hover { background: #475569; }
+        .dag-toolbar button.active { background: #38bdf8; color: #0f172a; border-color: #38bdf8; }
+
+        /* DAG 节点样式（自定义节点内容区） */
+        .dag-node { background: #1e293b; border: 2px solid #38bdf8; border-radius: 8px; padding: 10px 20px; font-size: 13px; color: #e2e8f0; min-width: 140px; max-width: 200px; text-align: center; transition: box-shadow 0.2s, border-color 0.2s; }
+        .dag-node:hover { box-shadow: 0 0 12px rgba(56,189,248,0.3); }
+        .dag-node.selected { border-color: #fbbf24; box-shadow: 0 0 12px rgba(251,191,36,0.4); }
+        .dag-node .node-id { font-size: 9px; color: #64748b; margin-top: 2px; }
+        .dag-node .node-def { font-size: 10px; color: #94a3b8; }
+        .dag-node.status-pending { border-color: #64748b; }
+        .dag-node.status-running { border-color: #22d3ee; box-shadow: 0 0 16px rgba(34,211,238,0.5); animation: pulse 1.5s infinite; }
+        .dag-node.status-completed { border-color: #4ade80; }
+        .dag-node.status-failed { border-color: #f87171; }
+        .dag-node.status-waiting_approval { border-color: #fbbf24; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+        /* React Flow 边和Handle */
+        .react-flow__edge-path { stroke: #94a3b8; stroke-width: 2; }
+        .react-flow__edge.selected .react-flow__edge-path { stroke: #38bdf8; }
+        .react-flow__handle { width: 12px !important; height: 12px !important; background: #38bdf8 !important; border: 2px solid #0f172a !important; border-radius: 50% !important; }
+        .react-flow__handle:hover { background: #fbbf24 !important; width: 14px !important; height: 14px !important; }
+        .react-flow__attribution { display: none !important; }
+
+        /* React Flow 默认节点容器不要有额外样式 */
+        .react-flow__node-dagNode { padding: 0; border: none; background: none; border-radius: 0; }
+
+        /* 节点选择面板 */
+        .node-palette { position: absolute; top: 44px; left: 8px; z-index: 10; background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px; max-height: 300px; overflow-y: auto; width: 180px; }
+        .node-palette-item { padding: 6px 8px; cursor: pointer; font-size: 12px; border-radius: 4px; color: #e2e8f0; margin-bottom: 2px; }
+        .node-palette-item:hover { background: #334155; }
+        .node-palette-item .pal-cat { font-size: 10px; color: #64748b; }
+
+        /* 编辑面板（节点/边） */
+        .edit-panel { position: absolute; top: 8px; right: 8px; z-index: 10; background: #1e293b; border: 1px solid #38bdf8; border-radius: 8px; padding: 12px; width: 260px; max-height: 460px; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+        .edit-panel h4 { color: #38bdf8; font-size: 13px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .edit-panel h4 .close-btn { color: #64748b; cursor: pointer; font-size: 16px; line-height: 1; }
+        .edit-panel h4 .close-btn:hover { color: #e2e8f0; }
+        .edit-panel label { display: block; font-size: 11px; color: #94a3b8; margin-bottom: 2px; margin-top: 8px; }
+        .edit-panel input, .edit-panel textarea, .edit-panel select { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 4px; padding: 4px 8px; color: #e2e8f0; font-size: 12px; outline: none; }
+        .edit-panel input:focus, .edit-panel textarea:focus { border-color: #38bdf8; }
+        .edit-panel textarea { resize: vertical; min-height: 40px; font-family: 'Cascadia Code', 'Fira Code', monospace; }
+        .edit-panel .edit-actions { display: flex; gap: 6px; margin-top: 12px; }
+        .edit-panel .edit-actions button { padding: 4px 12px; border-radius: 4px; border: none; cursor: pointer; font-size: 11px; font-weight: 500; }
+        .edit-panel .field-info { font-size: 10px; color: #64748b; margin-top: 1px; }
+        .edit-panel .edge-source { color: #38bdf8; font-size: 12px; font-weight: 500; }
+        .edit-panel .edge-arrow { color: #64748b; margin: 0 6px; }
+        .edit-panel .edge-target { color: #4ade80; font-size: 12px; font-weight: 500; }
+
+        /* 匹配结果 */
+        .match-result { background: #1e293b; border: 1px solid #38bdf8; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+        .match-result .match-name { color: #38bdf8; font-size: 16px; font-weight: 600; }
+        .match-result .match-reason { color: #94a3b8; font-size: 12px; margin-top: 4px; }
+        .match-result .match-confidence { color: #4ade80; font-size: 12px; margin-top: 2px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>AgentFlow MVP</h1>
+        <span class="status" id="serviceStatus"></span>
+    </div>
+
+    <div class="main">
+        <!-- 左侧面板 -->
+        <div class="sidebar">
+            <div class="sidebar-section">
+                <div class="sidebar-header">
+                    工作流
+                    <button onclick="showCreateWorkflow()">+ 新建</button>
+                </div>
+                <div class="sidebar-list" id="workflowList"></div>
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-header">可用节点</div>
+                <div class="sidebar-list" id="nodeList"></div>
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-header">
+                    任务
+                    <button onclick="showCreateTask()">+ 新建</button>
+                </div>
+                <div class="sidebar-list" id="taskList"></div>
+            </div>
+        </div>
+
+        <!-- 右侧主区域 -->
+        <div class="content" id="contentArea">
+            <div class="empty" id="emptyHint">选择左侧工作流或任务查看详情</div>
+            <div class="hidden" id="workflowDetail">
+                <h2 id="wfName"></h2>
+                <p style="color:#94a3b8;font-size:13px;margin-bottom:16px;" id="wfDesc"></p>
+                <div class="tabs" id="wfTabs">
+                    <div class="tab active" onclick="switchWfTab('dag')">DAG 编辑器</div>
+                    <div class="tab" onclick="switchWfTab('json')">JSON</div>
+                </div>
+                <div id="wfDagTab">
+                    <div id="dagEditorRoot" class="dag-editor"></div>
+                </div>
+                <div id="wfJsonTab" class="hidden"><div class="json-view" id="wfJson"></div></div>
+            </div>
+            <div class="hidden" id="taskDetail"></div>
+        </div>
+    </div>
+
+    <!-- 新建工作流弹框 -->
+    <div class="modal-overlay hidden" id="createWfModal">
+        <div class="modal">
+            <h3>新建工作流</h3>
+            <label>名称</label>
+            <input id="newWfName" placeholder="如：需求开发流程">
+            <label>描述</label>
+            <textarea id="newWfDesc" placeholder="如：适用于新功能开发场景"></textarea>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="hideModal('createWfModal')">取消</button>
+                <button class="btn-primary" onclick="createWorkflow()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新建任务弹框 -->
+    <div class="modal-overlay hidden" id="createTaskModal">
+        <div class="modal">
+            <h3>新建任务</h3>
+            <label>意图描述</label>
+            <textarea id="newTaskIntent" placeholder="如：根据需求实现用户登录"></textarea>
+            <div style="margin-top:12px;display:flex;gap:8px;">
+                <button class="btn-secondary" onclick="matchWorkflow()" style="font-size:12px;padding:4px 12px;">智能匹配</button>
+            </div>
+            <div id="matchResultArea" class="hidden" style="margin-top:12px;"></div>
+            <label>选择工作流</label>
+            <select id="newTaskWorkflow"></select>
+            <label>输入数据 (JSON)</label>
+            <textarea id="newTaskInput" placeholder='{"requirement": "描述..."}'></textarea>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="hideModal('createTaskModal')">取消</button>
+                <button class="btn-primary" onclick="createTask()">创建并启动</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '';
+        let workflows = [];
+        let nodes = [];
+        let tasks = [];
+        let selectedId = null;
+        let selectedType = null; // 'workflow' | 'task'
+        let refreshTimer = null;
+        let eventSource = null;
+        let logLines = [];
+
+        // === 初始化 ===
+        async function init() {
+            const r = await fetch(API + '/api/health').then(r => r.json()).catch(() => null);
+            if (r) {
+                document.getElementById('serviceStatus').textContent = 
+                    `服务: ${r.status} | CodeBuddy: ${r.codebuddy_available ? '可用' : '不可用'}`;
+            }
+            await loadNodes();
+            await loadWorkflows();
+            await loadTasks();
+        }
+
+        // === SSE 事件监听 ===
+        function connectSSE(taskId) {
+            if (eventSource) {
+                eventSource.close();
+            }
+            const url = API + '/api/events' + (taskId ? '?task_id=' + taskId : '');
+            eventSource = new EventSource(url);
+            eventSource.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    handleSSEEvent(data);
+                } catch(err) {}
+            };
+            eventSource.onerror = () => {
+                // 自动重连由 EventSource 处理
+            };
+        }
+
+        function handleSSEEvent(data) {
+            const type = data.type;
+            const d = data.data || {};
+            // 维护任务节点状态，用于DAG编辑器颜色
+            if (!window._taskNodeStates) window._taskNodeStates = {};
+
+            if (type === 'node:thinking') {
+                addLog(d.task_id, d.content, 'thinking');
+            } else if (type === 'node:progress') {
+                addLog(d.task_id, d.content, 'progress');
+            } else if (type === 'node:approval') {
+                addLog(d.task_id, `⏳ 审批请求: ${d.approval_id ? d.approval_id.slice(0,8) : 'auto'}`, 'approval');
+                // 刷新任务详情以显示审批
+                if (selectedType === 'task' && selectedId === d.task_id) {
+                    showTaskDetail(d.task_id);
+                }
+            } else if (type === 'dag:node_started') {
+                addLog(d.task_id, `▶ 节点 ${d.node_id} 开始执行`, 'progress');
+                window._taskNodeStates[d.node_id] = 'running';
+                if (window.updateDAGNodeStates) window.updateDAGNodeStates(window._taskNodeStates);
+                refreshTaskDAGView(d.task_id);
+            } else if (type === 'dag:node_completed') {
+                addLog(d.task_id, `✓ 节点 ${d.node_id} 执行完成`, 'completed');
+                window._taskNodeStates[d.node_id] = 'completed';
+                if (window.updateDAGNodeStates) window.updateDAGNodeStates(window._taskNodeStates);
+                refreshTaskDAGView(d.task_id);
+            } else if (type === 'task:breakpoint_hit') {
+                addLog(d.task_id, `🔴 断点命中: ${d.node_id}`, 'approval');
+                window._taskNodeStates[d.node_id] = 'waiting_approval';
+                if (window.updateDAGNodeStates) window.updateDAGNodeStates(window._taskNodeStates);
+                if (selectedType === 'task' && selectedId === d.task_id) {
+                    showTaskDetail(d.task_id);
+                }
+            } else if (type === 'task:completed') {
+                addLog(d.task_id, '✅ 任务完成', 'completed');
+                loadTasks();
+                if (selectedType === 'task' && selectedId === d.task_id) {
+                    showTaskDetail(d.task_id);
+                }
+            } else if (type === 'task:failed') {
+                addLog(d.task_id, `❌ 任务失败: ${d.error || ''}`, 'error');
+                loadTasks();
+                if (selectedType === 'task' && selectedId === d.task_id) {
+                    showTaskDetail(d.task_id);
+                }
+            } else if (type === 'approval:created') {
+                if (selectedType === 'task' && selectedId === d.task_id) {
+                    showTaskDetail(d.task_id);
+                }
+            } else if (type === 'approval:resolved') {
+                if (selectedType === 'task' && selectedId === d.task_id) {
+                    showTaskDetail(d.task_id);
+                }
+            }
+        }
+
+        // 实时刷新任务DAG视图中的节点颜色（不重绘整个面板）
+        function refreshTaskDAGView(taskId) {
+            const svg = document.getElementById('taskDagSvg_' + taskId);
+            if (!svg) return;
+            const states = window._taskNodeStates || {};
+            const colorMap = {pending:'#64748b',running:'#22d3ee',completed:'#4ade80',failed:'#f87171',waiting_approval:'#fbbf24'};
+            svg.querySelectorAll('rect[data-node-id]').forEach(rect => {
+                const nid = rect.dataset.nodeId;
+                const state = states[nid] || 'pending';
+                const color = colorMap[state] || '#64748b';
+                rect.setAttribute('stroke', color);
+                // 更新状态文字颜色
+                const textEl = svg.querySelector(`text[data-node-state="${nid}"]`);
+                if (textEl) textEl.setAttribute('fill', color);
+            });
+        }
+
+        const taskLogs = {};
+        function addLog(taskId, content, type) {
+            if (!taskLogs[taskId]) taskLogs[taskId] = [];
+            taskLogs[taskId].push({ content, type, time: new Date().toLocaleTimeString() });
+            if (taskLogs[taskId].length > 200) taskLogs[taskId].shift();
+            // 如果当前正在查看此任务，更新日志面板
+            const panel = document.getElementById('logPanel_' + taskId);
+            if (panel) {
+                const line = document.createElement('div');
+                line.className = `log-line log-${type}`;
+                line.textContent = `[${new Date().toLocaleTimeString()}] ${content}`;
+                panel.appendChild(line);
+                panel.scrollTop = panel.scrollHeight;
+            }
+        }
+
+        // === 工具函数 ===
+        function statusBadge(status) {
+            const labels = { pending: '等待', running: '运行', completed: '完成', failed: '失败', cancelled: '取消', waiting_approval: '待审批', skipped: '跳过' };
+            return `<span class="status-badge status-${status}">${labels[status] || status}</span>`;
+        }
+
+        function hideModal(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+
+        function autoRefresh() {
+            if (refreshTimer) clearInterval(refreshTimer);
+            const hasRunning = tasks.some(t => t.status === 'running');
+            if (hasRunning) {
+                refreshTimer = setInterval(() => loadTasks(), 3000);
+            }
+        }
+
+        // === 加载节点 ===
+        async function loadNodes() {
+            nodes = await fetch(API + '/api/nodes').then(r => r.json());
+            const el = document.getElementById('nodeList');
+            el.innerHTML = nodes.map(n => `
+                <div class="sidebar-item">
+                    ${n.display_name}
+                    <span class="badge badge-${n.category === 'development' ? 'dev' : n.category === 'fix' ? 'fix' : 'review'}">${n.category}</span>
+                    <div class="sub">${n.description}</div>
+                </div>
+            `).join('');
+        }
+
+        // === 加载工作流 ===
+        async function loadWorkflows() {
+            workflows = await fetch(API + '/api/workflows').then(r => r.json());
+            renderSidebar();
+        }
+
+        // === 加载任务 ===
+        async function loadTasks() {
+            tasks = await fetch(API + '/api/tasks').then(r => r.json());
+            renderSidebar();
+            autoRefresh();
+        }
+
+        function renderSidebar() {
+            // 工作流
+            const wfEl = document.getElementById('workflowList');
+            if (workflows.length === 0) {
+                wfEl.innerHTML = '<div class="sidebar-item" style="color:#64748b">暂无工作流</div>';
+            } else {
+                wfEl.innerHTML = workflows.map(w => `
+                    <div class="sidebar-item ${selectedType === 'workflow' && w.id === selectedId ? 'active' : ''}" onclick="selectWorkflow('${w.id}')">
+                        ${w.name || '未命名'}
+                        <span class="badge badge-dev">${w.dag?.nodes?.length || 0}节点</span>
+                        <div class="sub">${w.description || '无描述'}</div>
+                    </div>
+                `).join('');
+            }
+
+            // 任务
+            const taskEl = document.getElementById('taskList');
+            if (tasks.length === 0) {
+                taskEl.innerHTML = '<div class="sidebar-item" style="color:#64748b">暂无任务</div>';
+            } else {
+                const sorted = [...tasks].reverse();
+                taskEl.innerHTML = sorted.map(t => `
+                    <div class="sidebar-item ${selectedType === 'task' && t.id === selectedId ? 'active' : ''}" onclick="selectTask('${t.id}')">
+                        ${t.title || '未命名任务'} ${statusBadge(t.status)}
+                        <div class="sub">${t.intent || ''}</div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        // === 选中工作流 ===
+        async function selectWorkflow(id) {
+            selectedId = id;
+            selectedType = 'workflow';
+            renderSidebar();
+            const wf = await fetch(API + '/api/workflows/' + id).then(r => r.json());
+            document.getElementById('emptyHint').classList.add('hidden');
+            document.getElementById('workflowDetail').classList.remove('hidden');
+            document.getElementById('taskDetail').classList.add('hidden');
+            document.getElementById('wfName').textContent = wf.name || '未命名';
+            document.getElementById('wfDesc').textContent = wf.description || '无描述';
+            document.getElementById('wfJson').textContent = JSON.stringify(wf, null, 2);
+            // 默认显示DAG编辑器
+            switchWfTab('dag');
+            renderDAG(wf);
+        }
+
+        function switchWfTab(tab) {
+            document.querySelectorAll('#wfTabs .tab').forEach(t => t.classList.remove('active'));
+            // 找到正确的tab
+            const tabs = document.querySelectorAll('#wfTabs .tab');
+            tabs.forEach(t => {
+                if ((tab === 'dag' && t.textContent.includes('DAG')) || (tab === 'json' && t.textContent.includes('JSON'))) {
+                    t.classList.add('active');
+                }
+            });
+            document.getElementById('wfJsonTab').classList.toggle('hidden', tab !== 'json');
+            document.getElementById('wfDagTab').classList.toggle('hidden', tab !== 'dag');
+        }
+
+        function renderDAG(wf) {
+            // 使用 React Flow 渲染
+            if (window.renderDAGEditor) {
+                window.renderDAGEditor(wf);
+            }
+        }
+
+        // === 选中任务 ===
+        async function selectTask(id) {
+            selectedId = id;
+            selectedType = 'task';
+            renderSidebar();
+            // 连接 SSE
+            connectSSE(id);
+            await showTaskDetail(id);
+        }
+
+        async function showTaskDetail(id) {
+            const data = await fetch(API + '/api/tasks/' + id).then(r => r.json());
+            const task = data.task;
+            const steps = data.steps || [];
+            const approvals = data.pending_approvals || [];
+            const snapshots = data.snapshots || [];
+
+            document.getElementById('emptyHint').classList.add('hidden');
+            document.getElementById('workflowDetail').classList.add('hidden');
+            const el = document.getElementById('taskDetail');
+            el.classList.remove('hidden');
+
+            let html = `
+                <div class="task-header">
+                    <h2>${task.title || '未命名任务'} ${statusBadge(task.status)}</h2>
+                    ${task.status === 'pending' ? `<button class="btn-primary" onclick="startTask('${task.id}')" style="font-size:12px;padding:4px 12px;">启动</button>` : ''}
+                    ${task.status === 'running' ? `<button class="btn-reject" onclick="cancelTask('${task.id}')" style="font-size:12px;padding:4px 12px;">取消</button>` : ''}
+                </div>
+                <p style="color:#94a3b8;font-size:13px;margin-bottom:4px;">意图: ${task.intent || '无'}</p>
+                <p style="color:#64748b;font-size:12px;margin-bottom:16px;">
+                    创建: ${task.created_at?.slice(11, 19) || '-'} | 
+                    ${task.completed_at ? '完成: ' + task.completed_at?.slice(11, 19) : ''}
+                </p>
+            `;
+
+            // DAG 状态视图（只读）
+            const wfId = task.workflow_id;
+            if (wfId) {
+                const wf = workflows.find(w => w.id === wfId);
+                if (wf) {
+                    // 从步骤状态构建节点状态映射，SSE实时状态优先
+                    const nodeStates = {};
+                    steps.forEach(s => { nodeStates[s.node_id] = s.status; });
+                    // SSE实时状态覆盖（更及时）
+                    if (window._taskNodeStates) {
+                        Object.assign(nodeStates, window._taskNodeStates);
+                    }
+                    // 用简化的SVG渲染
+                    const dagNodes = wf.dag?.nodes || [];
+                    const dagEdges = wf.dag?.edges || [];
+                    const nodeW = 140, nodeH = 40, gapY = 60;
+                    const svgW = 600, svgH = Math.max(200, dagNodes.length * (nodeH + gapY));
+
+                    html += `<h3 style="font-size:14px;color:#94a3b8;margin-bottom:8px;">DAG 执行状态</h3>`;
+                    html += `<div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px;overflow-x:auto;">`;
+                    html += `<svg id="taskDagSvg_${task.id}" width="${svgW}" height="${svgH}" style="display:block;margin:0 auto;">`;
+
+                    // 简单布局：按拓扑排序分层
+                    const inDeg = {};
+                    const adj = {};
+                    dagNodes.forEach(n => { inDeg[n.id] = 0; adj[n.id] = []; });
+                    dagEdges.forEach(e => { inDeg[e.target_id] = (inDeg[e.target_id]||0)+1; adj[e.source_id] = adj[e.source_id]||[]; adj[e.source_id].push(e.target_id); });
+                    const levels = [];
+                    const visited = new Set();
+                    let queue = dagNodes.filter(n => (inDeg[n.id]||0) === 0).map(n => n.id);
+                    while (queue.length) {
+                        levels.push([...queue]);
+                        queue.forEach(id => visited.add(id));
+                        const next = [];
+                        queue.forEach(id => { (adj[id]||[]).forEach(tid => { if (!visited.has(tid) && !next.includes(tid)) next.push(tid); }); });
+                        queue = next;
+                    }
+                    dagNodes.filter(n => !visited.has(n.id)).forEach(n => { levels.push([n.id]); });
+
+                    const positions = {};
+                    levels.forEach((level, li) => {
+                        const totalW = level.length * nodeW + (level.length - 1) * 40;
+                        const startX = (svgW - totalW) / 2;
+                        level.forEach((nid, ni) => {
+                            positions[nid] = { x: startX + ni * (nodeW + 40), y: 20 + li * (nodeH + gapY) };
+                        });
+                    });
+
+                    // 画边
+                    dagEdges.forEach(e => {
+                        const from = positions[e.source_id];
+                        const to = positions[e.target_id];
+                        if (from && to) {
+                            const x1 = from.x + nodeW/2, y1 = from.y + nodeH;
+                            const x2 = to.x + nodeW/2, y2 = to.y;
+                            const cy = (y1 + y2) / 2;
+                            html += `<path d="M${x1},${y1} C${x1},${cy} ${x2},${cy} ${x2},${y2}" fill="none" stroke="#475569" stroke-width="2"/>`;
+                        }
+                    });
+
+                    // 画节点
+                    dagNodes.forEach(n => {
+                        const pos = positions[n.id];
+                        if (!pos) return;
+                        const nd = nodes.find(d => d.id === n.definition_id);
+                        const label = nd ? nd.display_name : n.definition_id;
+                        const state = nodeStates[n.id] || 'pending';
+                        const colorMap = {pending:'#64748b',running:'#22d3ee',completed:'#4ade80',failed:'#f87171',waiting_approval:'#fbbf24'};
+                        const borderColor = colorMap[state] || '#64748b';
+                        const glowMap = {running:'0 0 8px rgba(34,211,238,0.4)',completed:'0 0 6px rgba(74,222,128,0.3)',failed:'0 0 6px rgba(248,113,113,0.3)',waiting_approval:'0 0 6px rgba(251,191,36,0.3)'};
+                        const glow = glowMap[state] || 'none';
+                        html += `<rect data-node-id="${n.id}" x="${pos.x}" y="${pos.y}" width="${nodeW}" height="${nodeH}" rx="6" fill="#1e293b" stroke="${borderColor}" stroke-width="2" style="filter:drop-shadow(${glow})"/>`;
+                        html += `<text x="${pos.x + nodeW/2}" y="${pos.y + 16}" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="500">${label}</text>`;
+                        html += `<text data-node-state="${n.id}" x="${pos.x + nodeW/2}" y="${pos.y + 32}" text-anchor="middle" fill="${borderColor}" font-size="10">${n.id} ${state !== 'pending' ? '(' + state + ')' : ''}</text>`;
+                    });
+
+                    html += `</svg></div>`;
+                }
+            }
+
+            // 实时日志
+            html += `<h3 style="font-size:14px;color:#94a3b8;margin-bottom:8px;">实时日志</h3>`;
+            html += `<div class="log-panel" id="logPanel_${task.id}">`;
+            if (taskLogs[task.id]) {
+                taskLogs[task.id].forEach(l => {
+                    html += `<div class="log-line log-${l.type}">[${l.time}] ${l.content}</div>`;
+                });
+            }
+            if (task.status !== 'running' && task.status !== 'pending' && (!taskLogs[task.id] || taskLogs[task.id].length === 0)) {
+                html += `<div class="log-line" style="color:#64748b">暂无日志</div>`;
+            }
+            html += `</div>`;
+
+            // 审批卡片
+            if (approvals.length > 0) {
+                html += `<h3 style="font-size:14px;color:#fbbf24;margin-bottom:8px;">待审批</h3>`;
+                for (const a of approvals) {
+                    html += `
+                        <div class="approval-card">
+                            <div class="approval-title">${a.title} <span style="font-size:10px;color:#94a3b8;">[${a.source}]</span></div>
+                            <div class="approval-desc">${a.description || ''}</div>
+                            <div class="approval-actions">
+                                <button class="btn-approve" onclick="resolveApproval('${a.id}', true)">批准</button>
+                                <button class="btn-reject" onclick="resolveApproval('${a.id}', false)">拒绝</button>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            // 调试面板
+            html += `
+                <div class="debug-panel">
+                    <h3>🔴 断点调试</h3>
+                    <div style="margin-bottom:8px;">
+                        <input id="bpNodeInput" placeholder="节点ID (如 n2)" style="width:120px;font-size:12px;padding:4px 8px;background:#0f172a;border:1px solid #334155;border-radius:4px;color:#e2e8f0;">
+                        <button class="btn-primary" onclick="setBreakpoint('${task.id}')" style="font-size:11px;padding:4px 8px;">设置断点</button>
+                        <button class="btn-secondary" onclick="debugContinue('${task.id}')" style="font-size:11px;padding:4px 8px;margin-left:4px;">继续执行</button>
+                    </div>
+                    <div class="bp-list" id="bpList_${task.id}">
+                        ${(task.context?.breakpoints || []).map(bp => `
+                            <span class="bp-tag" onclick="removeBreakpoint('${task.id}','${bp}')">${bp} ×</span>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+
+            // 步骤
+            html += `<h3 style="font-size:14px;color:#94a3b8;margin-bottom:8px;">执行步骤</h3><div class="steps-panel">`;
+            for (const step of steps) {
+                const nodeDef = nodes.find(n => n.id === step.node_id);
+                const stepName = step.node_id;
+                html += `
+                    <div class="step-card">
+                        <div class="step-header">
+                            <span class="step-title">${stepName}</span>
+                            ${statusBadge(step.status)}
+                        </div>
+                        <div class="step-input">输入: ${JSON.stringify(step.input_data).slice(0, 200)}</div>
+                        ${step.output_data ? `<div class="step-output">${JSON.stringify(step.output_data, null, 2)}</div>` : ''}
+                        ${step.error ? `<div style="color:#f87171;font-size:12px;margin-top:4px;">错误: ${step.error.message || JSON.stringify(step.error)}</div>` : ''}
+                    </div>
+                `;
+            }
+            html += `</div>`;
+
+            // 快照
+            if (snapshots.length > 0) {
+                html += `<h3 style="font-size:14px;color:#94a3b8;margin-bottom:8px;">Git 快照</h3>`;
+                for (const snap of snapshots) {
+                    html += `
+                        <div class="snapshot-card">
+                            <div class="snap-info">
+                                <span class="snap-type">${snap.type}</span>
+                                <span style="color:#94a3b8;margin-left:8px;">步骤: ${snap.step_id?.slice(0,8) || '-'}</span>
+                                <div class="snap-hash">${snap.git_commit_hash?.slice(0,12) || '-'}</div>
+                                ${snap.untracked_files?.length ? `<div style="color:#fbbf24;font-size:11px;">新增文件: ${snap.untracked_files.join(', ')}</div>` : ''}
+                            </div>
+                            <button class="btn-rollback" onclick="rollbackSnapshot('${task.id}','${snap.id}')">回滚</button>
+                        </div>
+                    `;
+                }
+            }
+
+            // 产出文件
+            html += `<div id="taskFiles_${task.id}"></div>`;
+
+            // 输出
+            if (task.output_data) {
+                html += `<h3 style="font-size:14px;color:#94a3b8;margin-bottom:8px;margin-top:12px;">最终输出</h3>`;
+                html += `<div class="json-view">${JSON.stringify(task.output_data, null, 2)}</div>`;
+            }
+
+            el.innerHTML = html;
+            // 自动滚动日志到底部
+            const logPanel = document.getElementById('logPanel_' + task.id);
+            if (logPanel) logPanel.scrollTop = logPanel.scrollHeight;
+            // 加载产出文件列表
+            if (task.status === 'completed' || task.status === 'failed') {
+                loadTaskFiles(task.id);
+            }
+        }
+
+        // === 产出文件 ===
+        async function loadTaskFiles(taskId) {
+            const container = document.getElementById('taskFiles_' + taskId);
+            if (!container) return;
+            try {
+                const resp = await fetch(`/api/tasks/${taskId}/files`);
+                const data = await resp.json();
+                if (!data.files || data.files.length === 0) {
+                    container.innerHTML = '';
+                    return;
+                }
+                let html = `<h3 style="font-size:14px;color:#38bdf8;margin-bottom:8px;">📁 产出文件 (${data.files.length})</h3>`;
+                html += `<div style="display:grid;gap:6px;">`;
+                for (const f of data.files) {
+                    const icon = f.ext === '.html' ? '🌐' : f.ext === '.pptx' ? '📊' : f.ext === '.pdf' ? '📄' : f.ext === '.png' || f.ext === '.jpg' ? '🖼️' : f.ext === '.py' ? '🐍' : '📄';
+                    const sizeStr = f.size > 1024 * 1024 ? (f.size / 1024 / 1024).toFixed(1) + 'MB' : f.size > 1024 ? (f.size / 1024).toFixed(1) + 'KB' : f.size + 'B';
+                    const isPreviewable = ['.html', '.svg'].includes(f.ext);
+                    html += `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#1e293b;border-radius:6px;border:1px solid #334155;">
+                        <span style="font-size:16px;">${icon}</span>
+                        <div style="flex:1;min-width:0;">
+                            <div style="font-size:13px;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${f.name}</div>
+                            <div style="font-size:11px;color:#64748b;">${f.path} · ${sizeStr}</div>
+                        </div>
+                        <a href="/api/tasks/${taskId}/files/${f.path}" target="_blank" style="color:#38bdf8;font-size:12px;text-decoration:none;padding:2px 8px;border:1px solid #38bdf8;border-radius:4px;">下载</a>
+                        ${isPreviewable ? `<button onclick="previewFile('${taskId}','${f.path}')" style="color:#4ade80;font-size:12px;background:none;border:1px solid #4ade80;border-radius:4px;padding:2px 8px;cursor:pointer;">预览</button>` : ''}
+                    </div>`;
+                }
+                html += `</div>`;
+                container.innerHTML = html;
+            } catch (e) {
+                container.innerHTML = '';
+            }
+        }
+
+        function previewFile(taskId, filePath) {
+            const url = `/api/tasks/${taskId}/files/${filePath}`;
+            window.open(url, '_blank');
+        }
+
+        // === 新建工作流 ===
+        function showCreateWorkflow() {
+            document.getElementById('createWfModal').classList.remove('hidden');
+            document.getElementById('newWfName').value = '';
+            document.getElementById('newWfDesc').value = '';
+        }
+
+        async function createWorkflow() {
+            const name = document.getElementById('newWfName').value.trim();
+            const desc = document.getElementById('newWfDesc').value.trim();
+            if (!name) return;
+            await fetch(API + '/api/workflows', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, description: desc}),
+            });
+            hideModal('createWfModal');
+            await loadWorkflows();
+        }
+
+        // === 新建任务 ===
+        function showCreateTask() {
+            document.getElementById('createTaskModal').classList.remove('hidden');
+            document.getElementById('newTaskIntent').value = '';
+            document.getElementById('newTaskInput').value = '{"requirement": ""}';
+            document.getElementById('matchResultArea').classList.add('hidden');
+            const sel = document.getElementById('newTaskWorkflow');
+            sel.innerHTML = workflows.map(w => `<option value="${w.id}">${w.name || '未命名'} (${w.dag?.nodes?.length||0}节点)</option>`).join('');
+        }
+
+        async function matchWorkflow() {
+            const intent = document.getElementById('newTaskIntent').value.trim();
+            if (!intent) return;
+            const result = await fetch(API + '/api/match?user_input=' + encodeURIComponent(intent)).then(r => r.json());
+            const area = document.getElementById('matchResultArea');
+            area.classList.remove('hidden');
+            if (result.matched_workflow_id) {
+                document.getElementById('newTaskWorkflow').value = result.matched_workflow_id;
+                area.innerHTML = `
+                    <div class="match-result">
+                        <div class="match-name">${result.matched_workflow_name || '未命名'}</div>
+                        <div class="match-reason">${result.reasoning || ''}</div>
+                        <div class="match-confidence">置信度: ${(result.confidence * 100).toFixed(0)}%</div>
+                    </div>
+                `;
+            } else {
+                area.innerHTML = `<div style="color:#f87171;font-size:13px;">${result.reasoning || '无匹配工作流'}</div>`;
+            }
+        }
+
+        async function createTask() {
+            const intent = document.getElementById('newTaskIntent').value.trim();
+            const workflow_id = document.getElementById('newTaskWorkflow').value;
+            let input_data = {};
+            try { input_data = JSON.parse(document.getElementById('newTaskInput').value || '{}'); } catch(e) {}
+
+            const r = await fetch(API + '/api/tasks', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title: intent.slice(0, 30), intent, workflow_id, input_data}),
+            });
+            const task = await r.json();
+            hideModal('createTaskModal');
+
+            if (task.id) {
+                await fetch(API + '/api/tasks/' + task.id + '/start', {method: 'POST'});
+                selectedId = task.id;
+                selectedType = 'task';
+                connectSSE(task.id);
+                await loadTasks();
+                await showTaskDetail(task.id);
+            }
+        }
+
+        // === 任务操作 ===
+        async function startTask(id) {
+            await fetch(API + '/api/tasks/' + id + '/start', {method: 'POST'});
+            connectSSE(id);
+            await loadTasks();
+            await showTaskDetail(id);
+        }
+
+        async function cancelTask(id) {
+            await fetch(API + '/api/tasks/' + id + '/cancel', {method: 'POST'});
+            await loadTasks();
+            await showTaskDetail(id);
+        }
+
+        async function resolveApproval(approvalId, approved) {
+            await fetch(API + '/api/approvals/' + approvalId + '/resolve', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({approved, result_data: {approved}}),
+            });
+            if (selectedId) await showTaskDetail(selectedId);
+            await loadTasks();
+        }
+
+        // === 快照回滚 ===
+        async function rollbackSnapshot(taskId, snapshotId) {
+            if (!confirm('确定要回滚到此快照吗？当前修改将丢失。')) return;
+            const r = await fetch(API + '/api/tasks/' + taskId + '/snapshots/' + snapshotId + '/rollback', {
+                method: 'POST',
+            });
+            const result = await r.json();
+            if (result.rolled_back) {
+                alert('回滚成功');
+                await showTaskDetail(taskId);
+            } else {
+                alert('回滚失败');
+            }
+        }
+
+        // === 断点调试 ===
+        async function setBreakpoint(taskId) {
+            const nodeId = document.getElementById('bpNodeInput').value.trim();
+            if (!nodeId) return;
+            const r = await fetch(API + '/api/tasks/' + taskId + '/debug/breakpoints', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({node_id: nodeId}),
+            });
+            const result = await r.json();
+            if (selectedId) await showTaskDetail(selectedId);
+        }
+
+        async function removeBreakpoint(taskId, nodeId) {
+            await fetch(API + '/api/tasks/' + taskId + '/debug/breakpoints/' + nodeId, {method: 'DELETE'});
+            if (selectedId) await showTaskDetail(selectedId);
+        }
+
+        async function debugContinue(taskId) {
+            await fetch(API + '/api/tasks/' + taskId + '/debug/continue', {method: 'POST'});
+            if (selectedId) await showTaskDetail(selectedId);
+        }
+
+        init();
+    </script>
+
+    <!-- React Flow DAG 编辑器组件 -->
+    <script type="text/babel">
+        const { useState, useCallback, useMemo, useEffect, useRef } = React;
+        const RF = window.ReactFlow;
+        const { ReactFlow, Controls, Background, MiniMap, useNodesState, useEdgesState, addEdge, MarkerType, Position, Handle, ReactFlowProvider } = RF;
+
+        // 自定义节点组件
+        function DAGNode({ data, selected }) {
+            const statusClass = data.status ? `status-${data.status}` : '';
+            return (
+                <div className={`dag-node ${statusClass} ${selected ? 'selected' : ''}`}>
+                    <Handle type="target" position={Position.Top} />
+                    <div style={{fontWeight: 500}}>{data.label || data.nodeId}</div>
+                    {data.defName && <div className="node-def">{data.defName}</div>}
+                    <div className="node-id">{data.nodeId}</div>
+                    <Handle type="source" position={Position.Bottom} />
+                </div>
+            );
+        }
+
+        // memo包装避免不必要的重渲染
+        const DAGNodeMemo = React.memo(DAGNode);
+
+        const nodeTypes = { dagNode: DAGNodeMemo };
+
+        // DAG编辑器主组件
+        function DAGEditor({ workflow, nodeDefs, onSave, taskStates }) {
+            const wfNodes = workflow?.dag?.nodes || [];
+            const wfEdges = workflow?.dag?.edges || [];
+
+            // 转换为ReactFlow节点 - 只在workflow变化时重新计算
+            const rfNodes = useMemo(() => wfNodes.map(n => {
+                const nd = nodeDefs.find(d => d.id === n.definition_id);
+                const status = taskStates?.[n.id] || '';
+                return {
+                    id: n.id,
+                    type: 'dagNode',
+                    position: n.position || { x: 100 + Math.random() * 200, y: 100 + Math.random() * 200 },
+                    data: {
+                        label: nd?.display_name || n.definition_id,
+                        nodeId: n.id,
+                        defName: nd?.display_name || n.definition_id,
+                        definitionId: n.definition_id,
+                        config: n.config || {},
+                        status,
+                    },
+                };
+            }), [wfNodes, nodeDefs, taskStates]);
+
+            // 转换为ReactFlow边
+            const rfEdges = useMemo(() => wfEdges.map(e => ({
+                id: `${e.source_id}-${e.target_id}`,
+                source: e.source_id,
+                target: e.target_id,
+                label: e.condition || '',
+                animated: false,
+                markerEnd: { type: MarkerType.ArrowClosed },
+                data: { condition: e.condition, dataMapping: e.data_mapping },
+            })), [wfEdges]);
+
+            const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes);
+            const [edges, setEdges, onEdgesChange] = useEdgesState(rfEdges);
+
+            // 选中元素的编辑状态
+            const [selectedNode, setSelectedNode] = useState(null);
+            const [selectedEdge, setSelectedEdge] = useState(null);
+            const [editCondition, setEditCondition] = useState('');
+            const [editDataMapping, setEditDataMapping] = useState('');
+            const [editNodeId, setEditNodeId] = useState('');
+            const [editNodeConfig, setEditNodeConfig] = useState('');
+
+            // 连线回调
+            const onConnect = useCallback((params) => {
+                setEdges((eds) => addEdge({
+                    ...params,
+                    markerEnd: { type: MarkerType.ArrowClosed },
+                    data: { condition: null, dataMapping: null },
+                }, eds));
+            }, [setEdges]);
+
+            // 选中变化回调
+            const onSelectionChange = useCallback(({ nodes: selNodes, edges: selEdges }) => {
+                if (selEdges && selEdges.length > 0) {
+                    const e = selEdges[0];
+                    setSelectedEdge(e);
+                    setSelectedNode(null);
+                    setEditCondition(e.data?.condition || '');
+                    setEditDataMapping(e.data?.dataMapping ? JSON.stringify(e.data.dataMapping, null, 2) : '');
+                } else if (selNodes && selNodes.length > 0) {
+                    const n = selNodes[0];
+                    setSelectedNode(n);
+                    setSelectedEdge(null);
+                    setEditNodeId(n.id);
+                    setEditNodeConfig(n.data?.config ? JSON.stringify(n.data.config, null, 2) : '{}');
+                } else {
+                    setSelectedNode(null);
+                    setSelectedEdge(null);
+                }
+            }, []);
+
+            // 边编辑：应用修改
+            const applyEdgeEdit = useCallback(() => {
+                if (!selectedEdge) return;
+                let parsedMapping = null;
+                if (editDataMapping.trim()) {
+                    try { parsedMapping = JSON.parse(editDataMapping); } catch(e) { alert('数据映射 JSON 格式错误'); return; }
+                }
+                setEdges((eds) => eds.map(e => {
+                    if (e.id === selectedEdge.id) {
+                        return {
+                            ...e,
+                            label: editCondition || '',
+                            data: { ...e.data, condition: editCondition || null, dataMapping: parsedMapping },
+                        };
+                    }
+                    return e;
+                }));
+                setSelectedEdge(null);
+            }, [selectedEdge, editCondition, editDataMapping, setEdges]);
+
+            // 节点编辑：应用修改
+            const applyNodeEdit = useCallback(() => {
+                if (!selectedNode) return;
+                let parsedConfig = {};
+                if (editNodeConfig.trim()) {
+                    try { parsedConfig = JSON.parse(editNodeConfig); } catch(e) { alert('节点配置 JSON 格式错误'); return; }
+                }
+                const newId = editNodeId.trim();
+                if (!newId) { alert('节点ID不能为空'); return; }
+                const oldId = selectedNode.id;
+                // 如果ID改了，先同步更新所有边
+                if (newId !== oldId) {
+                    setEdges((eds) => eds.map(e => {
+                        let newSource = e.source;
+                        let newTarget = e.target;
+                        if (e.source === oldId) newSource = newId;
+                        if (e.target === oldId) newTarget = newId;
+                        return {
+                            ...e,
+                            id: `${newSource}-${newTarget}`,
+                            source: newSource,
+                            target: newTarget,
+                        };
+                    }));
+                }
+                // 再更新节点本身
+                setNodes((nds) => nds.map(n => {
+                    if (n.id === oldId) {
+                        return {
+                            ...n,
+                            id: newId,
+                            data: { ...n.data, nodeId: newId, config: parsedConfig },
+                        };
+                    }
+                    return n;
+                }));
+                setSelectedNode(null);
+            }, [selectedNode, editNodeId, editNodeConfig, setNodes, setEdges]);
+
+            // 保存到后端
+            const handleSave = useCallback(() => {
+                const dagNodes = nodes.map(n => ({
+                    id: n.id,
+                    definition_id: n.data.definitionId,
+                    position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
+                    config: n.data.config || {},
+                    hooks: [],
+                }));
+                const dagEdges = edges.map(e => ({
+                    source_id: e.source,
+                    target_id: e.target,
+                    condition: e.data?.condition || null,
+                    data_mapping: e.data?.dataMapping || null,
+                }));
+                onSave({ nodes: dagNodes, edges: dagEdges });
+            }, [nodes, edges, onSave]);
+
+            // 添加节点
+            const [showPalette, setShowPalette] = useState(false);
+            const addNode = useCallback((defId) => {
+                const nd = nodeDefs.find(d => d.id === defId);
+                const id = 'n' + (nodes.length + 1) + '_' + Date.now().toString(36);
+                const newNode = {
+                    id,
+                    type: 'dagNode',
+                    position: { x: 150 + Math.random() * 200, y: 100 + Math.random() * 200 },
+                    data: {
+                        label: nd?.display_name || defId,
+                        nodeId: id,
+                        defName: nd?.display_name || defId,
+                        definitionId: defId,
+                        config: {},
+                        status: '',
+                    },
+                };
+                setNodes((nds) => [...nds, newNode]);
+                setShowPalette(false);
+            }, [nodeDefs, nodes.length, setNodes]);
+
+            // 删除选中节点/边
+            const deleteSelected = useCallback(() => {
+                setNodes((nds) => nds.filter((n) => !n.selected));
+                setEdges((eds) => eds.filter((e) => !e.selected));
+                setSelectedNode(null);
+                setSelectedEdge(null);
+            }, [setNodes, setEdges]);
+
+            if (!workflow) return <div style={{color:'#64748b',padding:40,textAlign:'center'}}>选择左侧工作流查看DAG</div>;
+
+            return (
+                <div style={{width:'100%',height:'100%'}}>
+                    <div className="dag-toolbar">
+                        <button onClick={() => setShowPalette(!showPalette)}>+ 添加节点</button>
+                        <button onClick={deleteSelected}>删除选中</button>
+                        <button className="btn-primary" onClick={handleSave} style={{background:'#38bdf8',color:'#0f172a'}}>保存</button>
+                    </div>
+                    {showPalette && (
+                        <div className="node-palette">
+                            {nodeDefs.map(nd => (
+                                <div key={nd.id} className="node-palette-item" onClick={() => addNode(nd.id)}>
+                                    {nd.display_name}
+                                    <div className="pal-cat">{nd.category}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    <ReactFlow
+                        nodes={nodes}
+                        edges={edges}
+                        onNodesChange={onNodesChange}
+                        onEdgesChange={onEdgesChange}
+                        onConnect={onConnect}
+                        onSelectionChange={onSelectionChange}
+                        nodeTypes={nodeTypes}
+                        fitView
+                        deleteKeyCode="Delete"
+                        nodesDraggable={true}
+                        elementsSelectable={true}
+                        selectNodesOnDrag={false}
+                        style={{background:'#0f172a'}}
+                    >
+                        <Controls style={{background:'#1e293b',borderRadius:4}} />
+                        <Background color="#1e293b" gap={20} />
+                        <MiniMap
+                            nodeColor="#38bdf8"
+                            maskColor="rgba(0,0,0,0.7)"
+                            style={{background:'#1e293b',borderRadius:4}}
+                        />
+                    </ReactFlow>
+                    {/* 边编辑面板 */}
+                    {selectedEdge && (
+                        <div className="edit-panel">
+                            <h4>
+                                编辑连线
+                                <span className="close-btn" onClick={() => setSelectedEdge(null)}>×</span>
+                            </h4>
+                            <div style={{marginBottom:6}}>
+                                <span className="edge-source">{selectedEdge.source}</span>
+                                <span className="edge-arrow">→</span>
+                                <span className="edge-target">{selectedEdge.target}</span>
+                            </div>
+                            <label>条件表达式</label>
+                            <input value={editCondition} onChange={e => setEditCondition(e.target.value)} placeholder="如: output.status == 'success'" />
+                            <div className="field-info">Python 表达式，引用上游节点 output，为空则无条件执行</div>
+                            <label>数据映射 (JSON)</label>
+                            <textarea value={editDataMapping} onChange={e => setEditDataMapping(e.target.value)} placeholder='{"result": "previous_output"}' />
+                            <div className="field-info">映射上游输出到当前节点输入，为空则自动传递</div>
+                            <div className="edit-actions">
+                                <button className="btn-primary" style={{background:'#38bdf8',color:'#0f172a'}} onClick={applyEdgeEdit}>应用</button>
+                                <button style={{background:'#334155',color:'#e2e8f0'}} onClick={() => setSelectedEdge(null)}>取消</button>
+                            </div>
+                        </div>
+                    )}
+                    {/* 节点编辑面板 */}
+                    {selectedNode && !selectedEdge && (
+                        <div className="edit-panel">
+                            <h4>
+                                编辑节点
+                                <span className="close-btn" onClick={() => setSelectedNode(null)}>×</span>
+                            </h4>
+                            <label>节点 ID</label>
+                            <input value={editNodeId} onChange={e => setEditNodeId(e.target.value)} placeholder="如: n1" />
+                            <div className="field-info">唯一标识符，修改后会同步更新所有连线引用</div>
+                            <label>节点定义</label>
+                            <input value={selectedNode.data?.defName || ''} disabled style={{opacity:0.5}} />
+                            <div className="field-info">节点类型（创建时选定，不可修改）</div>
+                            <label>节点配置 (JSON)</label>
+                            <textarea value={editNodeConfig} onChange={e => setEditNodeConfig(e.target.value)} placeholder='{"prompt_template": "..."}' />
+                            <div className="field-info">prompt_template 支持 {'{input.xxx}'} {'{workspace}'} 变量</div>
+                            <div className="edit-actions">
+                                <button className="btn-primary" style={{background:'#38bdf8',color:'#0f172a'}} onClick={applyNodeEdit}>应用</button>
+                                <button style={{background:'#334155',color:'#e2e8f0'}} onClick={() => setSelectedNode(null)}>取消</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // 全局渲染控制
+        let dagRoot = null;
+        let dagWfId = null;
+
+        window.renderDAGEditor = function(wf) {
+            if (!wf) return;
+            const container = document.getElementById('dagEditorRoot');
+            if (!container) return;
+
+            // 每次都重新渲染（确保数据最新）
+            if (dagRoot) {
+                ReactDOM.unmountComponentAtNode(container);
+                dagRoot = null;
+            }
+            dagWfId = wf.id;
+
+            const handleSave = async (dag) => {
+                const updatedWf = { ...wf, dag };
+                await fetch(API + '/api/workflows/' + wf.id, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(updatedWf),
+                });
+                await loadWorkflows();
+                await selectWorkflow(wf.id);
+            };
+
+            const root = ReactDOM.createRoot(container);
+            dagRoot = root;
+            root.render(
+                <ReactFlowProvider>
+                    <DAGEditor
+                        workflow={wf}
+                        nodeDefs={nodes}
+                        onSave={handleSave}
+                        taskStates={window._taskNodeStates || {}}
+                    />
+                </ReactFlowProvider>
+            );
+        };
+
+        // 任务执行时更新节点状态
+        window.updateDAGNodeStates = function(taskStates) {
+            if (dagWfId) {
+                const wf = workflows.find(w => w.id === dagWfId);
+                if (wf) {
+                    window.renderDAGEditor(wf);
+                }
+            }
+        };
+    </script>
+</html>

@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentFlow - Nodes</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e0e0e6; height: 100vh; display: flex; flex-direction: column; }
+
+/* === 顶栏 === */
+.topbar { height: 48px; background: #12121a; border-bottom: 1px solid #1e1e2e; display: flex; align-items: center; padding: 0 16px; flex-shrink: 0; gap: 20px; }
+.topbar .logo { color: #7c6aef; font-weight: 700; font-size: 15px; }
+.topbar nav { display: flex; gap: 4px; }
+.topbar nav a { color: #6b6b80; text-decoration: none; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; transition: all .15s; }
+.topbar nav a.active { color: #e0e0e6; background: #1e1e2e; }
+.topbar nav a:hover { color: #b0b0c0; }
+.topbar .spacer { flex: 1; }
+
+/* 通知铃铛 */
+.notif-btn { position: relative; background: none; border: none; color: #6b6b80; font-size: 18px; cursor: pointer; padding: 4px; transition: color .15s; }
+.notif-btn:hover { color: #b0b0d0; }
+.notif-badge { position: absolute; top: 0; right: 0; background: #ef4444; color: #fff; border-radius: 8px; padding: 0 5px; font-size: 9px; font-weight: 700; min-width: 14px; text-align: center; line-height: 14px; }
+.notif-dropdown { position: absolute; top: 48px; right: 60px; width: 340px; background: #12121a; border: 1px solid #1e1e2e; border-radius: 12px; z-index: 100; box-shadow: 0 8px 32px #00000066; display: none; }
+.notif-dropdown.show { display: block; }
+.notif-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid #1e1e2e; }
+.notif-header span { font-size: 13px; font-weight: 600; color: #e0e0e6; }
+.notif-header button { background: none; border: none; color: #4a4a60; font-size: 12px; cursor: pointer; }
+.notif-list { max-height: 320px; overflow-y: auto; }
+.notif-item { padding: 12px 14px; border-bottom: 1px solid #12121a; cursor: pointer; transition: background .1s; }
+.notif-item:hover { background: #1a1a28; }
+.notif-item:last-child { border-bottom: none; }
+.notif-item .ni-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.notif-item .ni-icon { font-size: 14px; }
+.notif-item .ni-title { font-size: 13px; font-weight: 500; color: #d0d0e0; flex: 1; }
+.notif-item .ni-time { font-size: 10px; color: #4a4a60; }
+.notif-item .ni-desc { font-size: 12px; color: #6b6b80; margin-left: 20px; }
+
+/* 用户头像下拉 */
+.user-menu { position: relative; }
+.user-avatar { width: 28px; height: 28px; border-radius: 50%; background: #2a2a3e; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #7c6aef; cursor: pointer; transition: background .15s; }
+.user-avatar:hover { background: #3a3a4e; }
+.user-dropdown { position: absolute; top: 40px; right: 0; width: 220px; background: #12121a; border: 1px solid #1e1e2e; border-radius: 12px; z-index: 100; box-shadow: 0 8px 32px #00000066; display: none; overflow: hidden; }
+.user-dropdown.show { display: block; }
+.ud-header { padding: 14px; border-bottom: 1px solid #1e1e2e; display: flex; align-items: center; gap: 10px; }
+.ud-avatar { width: 36px; height: 36px; border-radius: 50%; background: #7c6aef; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #fff; font-weight: 600; }
+.ud-info { flex: 1; }
+.ud-name { font-size: 13px; font-weight: 600; color: #e0e0e6; }
+.ud-email { font-size: 11px; color: #4a4a60; }
+.ud-item { padding: 10px 14px; font-size: 13px; color: #9090a8; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background .1s; }
+.ud-item:hover { background: #1a1a28; color: #e0e0e6; }
+.ud-divider { height: 1px; background: #1e1e2e; margin: 4px 0; }
+
+/* === 页面标题 === */
+.page-header { display: flex; align-items: center; gap: 16px; padding: 14px 28px; border-bottom: 1px solid #1a1a28; flex-shrink: 0; }
+.page-header h1 { font-size: 20px; font-weight: 600; color: #e0e0e6; }
+.btn-new { background: #7c6aef; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 12px; cursor: pointer; font-weight: 600; margin-left: auto; }
+.btn-new:hover { background: #6b58de; }
+
+/* === 主体 === */
+.main { flex: 1; overflow-y: auto; padding: 24px 28px; }
+
+/* 分类区域 */
+.category { margin-bottom: 36px; }
+.category-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.category-header .cat-icon { font-size: 16px; }
+.category-header .cat-name { font-size: 15px; font-weight: 600; color: #d0d0e0; }
+.category-header .cat-count { font-size: 11px; color: #4a4a60; margin-left: 4px; }
+.category-header .cat-line { flex: 1; height: 1px; background: #1a1a28; margin-left: 12px; }
+
+/* 卡片网格 */
+.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+
+/* === 节点卡片 === */
+.node-card { background: #12121a; border: 1px solid #1e1e2e; border-radius: 12px; padding: 18px; cursor: pointer; transition: all .15s; }
+.node-card:hover { border-color: #7c6aef55; box-shadow: 0 4px 16px #00000044; }
+.node-card.selected { border-color: #7c6aef; box-shadow: 0 0 0 1px #7c6aef; }
+
+/* 卡片头部：类型 + 名称 */
+.nc-top { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+.nc-type-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+.nc-type-icon.type-skill { background: #1a2e1a; border: 1px solid #166534; }
+.nc-type-icon.type-agent { background: #1a1a2e; border: 1px solid #312e81; }
+.nc-type-icon.type-combo { background: #2e2a1a; border: 1px solid #713f12; }
+
+.nc-info { flex: 1; min-width: 0; }
+.nc-name { font-size: 14px; font-weight: 600; color: #d0d0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nc-id { font-size: 11px; color: #4a4a60; margin-top: 1px; }
+.nc-desc { font-size: 12px; color: #6b6b80; margin-top: 4px; line-height: 1.4; }
+
+/* 类型标签 */
+.type-tag { font-size: 9px; padding: 2px 7px; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; }
+.type-tag-skill { background: #14532d; color: #4ade80; }
+.type-tag-agent { background: #312e81; color: #a78bfa; }
+.type-tag-combo { background: #713f12; color: #fbbf24; }
+
+/* 组成信息 */
+.nc-composition { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 11px; color: #4a4a60; }
+.nc-comp-item { display: flex; align-items: center; gap: 3px; }
+.nc-comp-icon { font-size: 12px; }
+
+/* 接口预览 */
+.nc-interface { background: #0e0e16; border-radius: 8px; padding: 10px 12px; margin-top: 8px; font-family: 'Cascadia Code', monospace; font-size: 11px; line-height: 1.5; }
+.nc-if-label { color: #4a4a60; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+.nc-if-row { display: flex; align-items: baseline; gap: 4px; color: #6b6b80; }
+.nc-if-arrow { color: #34d399; font-size: 10px; }
+.nc-if-key { color: #7c6aef; }
+.nc-if-type { color: #34d399; }
+
+/* 卡片底部 */
+.nc-footer { display: flex; align-items: center; gap: 6px; padding-top: 10px; margin-top: 10px; border-top: 1px solid #1a1a28; font-size: 11px; color: #4a4a60; }
+.nc-refs { display: flex; align-items: center; gap: 3px; }
+
+/* === 详情面板（右侧抽屉） === */
+.detail-panel { width: 0; overflow: hidden; background: #0e0e16; border-left: 1px solid #1a1a28; transition: width .25s ease; flex-shrink: 0; }
+.detail-panel.open { width: 400px; }
+.detail-inner { width: 400px; display: flex; flex-direction: column; height: 100%; }
+.dp-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid #1a1a28; flex-shrink: 0; }
+.dp-header-left { display: flex; align-items: center; gap: 10px; }
+.dp-type-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+.dp-header h3 { font-size: 16px; font-weight: 600; color: #e0e0e6; }
+.dp-close { background: none; border: none; color: #4a4a60; cursor: pointer; font-size: 18px; }
+
+.dp-body { flex: 1; overflow-y: auto; padding: 0 20px 20px; }
+
+/* 详情区域 */
+.dp-section { margin-top: 20px; }
+.dp-section-title { font-size: 10px; font-weight: 600; color: #4a4a60; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
+.dp-field { margin-bottom: 12px; }
+.dp-field label { display: block; font-size: 11px; font-weight: 600; color: #6b6b80; margin-bottom: 4px; }
+.dp-field input, .dp-field textarea, .dp-field select { width: 100%; background: #12121a; border: 1px solid #1e1e2e; border-radius: 8px; padding: 8px 12px; color: #e0e0e6; font-size: 13px; outline: none; font-family: inherit; }
+.dp-field input:focus, .dp-field textarea:focus { border-color: #7c6aef; }
+.dp-field textarea { resize: vertical; min-height: 60px; font-family: 'Cascadia Code', monospace; font-size: 12px; }
+
+/* 组成列表 */
+.comp-list { display: flex; flex-direction: column; gap: 6px; }
+.comp-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #12121a; border-radius: 8px; font-size: 12px; color: #9090a8; }
+.comp-item .ci-icon { font-size: 14px; flex-shrink: 0; }
+.comp-item .ci-name { flex: 1; }
+.comp-item .ci-type { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
+.ci-type-agent { background: #312e81; color: #a78bfa; }
+.ci-type-skill { background: #14532d; color: #4ade80; }
+.ci-type-file { background: #334155; color: #94a3b8; }
+.comp-item .ci-size { font-size: 10px; color: #4a4a60; }
+
+/* Schema展示 */
+.schema-block { background: #0a0a0f; border-radius: 8px; padding: 12px; font-family: 'Cascadia Code', monospace; font-size: 11px; line-height: 1.6; color: #6b6b80; }
+.schema-block .sk { color: #7c6aef; }
+.schema-block .sv { color: #34d399; }
+.schema-block .sp { color: #4a4a60; }
+
+/* 引用列表 */
+.ref-list { display: flex; flex-direction: column; gap: 6px; }
+.ref-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #12121a; border-radius: 8px; font-size: 12px; color: #9090a8; }
+.ref-item .ri-icon { color: #7c6aef; }
+.ref-item .ri-name { flex: 1; }
+.ref-item .ri-step { font-size: 10px; color: #4a4a60; }
+
+/* Toggle */
+.np-toggle { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
+.np-toggle span { font-size: 13px; color: #9090a8; }
+.toggle-switch { width: 36px; height: 20px; background: #2a2a3e; border-radius: 10px; cursor: pointer; position: relative; transition: background .2s; }
+.toggle-switch.on { background: #7c6aef; }
+.toggle-switch::after { content: ''; position: absolute; width: 16px; height: 16px; background: #fff; border-radius: 50%; top: 2px; left: 2px; transition: left .2s; }
+.toggle-switch.on::after { left: 18px; }
+
+/* 按钮 */
+.dp-actions { display: flex; gap: 8px; padding: 16px 20px; border-top: 1px solid #1a1a28; flex-shrink: 0; }
+.btn-secondary { background: #1e1e2e; color: #9090a8; border: 1px solid #2a2a3e; border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer; flex: 1; text-align: center; }
+.btn-secondary:hover { border-color: #7c6aef; color: #b0b0d0; }
+.btn-primary { background: #7c6aef; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer; font-weight: 600; flex: 1; text-align: center; }
+.btn-primary:hover { background: #6b58de; }
+.btn-danger { background: #7f1d1d; color: #f87171; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer; flex: 1; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- 顶栏 -->
+<div class="topbar" style="position:relative">
+  <div class="logo">◆ AgentFlow</div>
+  <nav>
+    <a href="chat.html">Chat</a>
+    <a href="tasks.html">Tasks</a>
+    <a href="workflows.html">Workflows</a>
+    <a href="nodes.html" class="active">Nodes</a>
+  </nav>
+  <div class="spacer"></div>
+
+  <!-- 通知铃铛 -->
+  <button class="notif-btn" onclick="document.getElementById('notifDD').classList.toggle('show');document.getElementById('userDD').classList.remove('show')">
+    🔔<span class="notif-badge">3</span>
+  </button>
+
+  <!-- 用户头像 -->
+  <div class="user-menu">
+    <div class="user-avatar" onclick="document.getElementById('userDD').classList.toggle('show');document.getElementById('notifDD').classList.remove('show')">Z</div>
+    <div class="user-dropdown" id="userDD">
+      <div class="ud-header"><div class="ud-avatar">Z</div><div class="ud-info"><div class="ud-name">Zhang San</div><div class="ud-email">zhangsan@corp.com</div></div></div>
+      <div class="ud-item">⚙️ Settings</div>
+      <div class="ud-item">🔑 API Keys</div>
+      <div class="ud-divider"></div>
+      <div class="ud-item">🚪 Sign Out</div>
+    </div>
+  </div>
+
+  <!-- 通知下拉 -->
+  <div class="notif-dropdown" id="notifDD">
+    <div class="notif-header"><span>Notifications</span><button>Clear all</button></div>
+    <div class="notif-list">
+      <div class="notif-item"><div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">Bug修复流程 等待审批</span><span class="ni-time">2m ago</span></div><div class="ni-desc">npm test --grep "auth"</div></div>
+      <div class="notif-item"><div class="ni-top"><span class="ni-icon">✅</span><span class="ni-title">需求开发流程 已完成</span><span class="ni-time">10m ago</span></div><div class="ni-desc">新增用户注册接口</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.notif-btn') && !e.target.closest('.notif-dropdown')) { var nd=document.getElementById('notifDD'); if(nd) nd.classList.remove('show'); }
+  if (!e.target.closest('.user-avatar') && !e.target.closest('.user-dropdown')) { var ud=document.getElementById('userDD'); if(ud) ud.classList.remove('show'); }
+});
+</script>
+
+<!-- 页面标题 -->
+<div class="page-header">
+  <h1>Nodes</h1>
+  <button class="btn-new">+ New</button>
+</div>
+
+<!-- 主体（含右侧面板） -->
+<div style="display:flex;flex:1;overflow:hidden">
+
+  <!-- 卡片区域 -->
+  <div class="main" style="overflow-y:auto">
+
+    <!-- 修复分类 -->
+    <div class="category">
+      <div class="category-header">
+        <span class="cat-icon">🐛</span>
+        <span class="cat-name">修复</span>
+        <span class="cat-count">2</span>
+        <span class="cat-line"></span>
+      </div>
+      <div class="card-grid">
+
+        <!-- Skill 类型卡片 -->
+        <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
+          <div class="nc-top">
+            <div class="nc-type-icon type-skill">📄</div>
+            <div class="nc-info">
+              <div class="nc-name">Bug分析</div>
+              <div class="nc-id">bug-analysis</div>
+              <div class="nc-desc">根据Bug描述分析代码，定位问题根因</div>
+            </div>
+            <span class="type-tag type-tag-skill">Skill</span>
+          </div>
+          <div class="nc-composition">
+            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
+          </div>
+          <div class="nc-interface">
+            <div class="nc-if-label">Input / Output</div>
+            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">bug_desc</span>: <span class="nc-if-type">string</span></div>
+            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">analysis</span>: <span class="nc-if-type">{ root, files, fix_hint }</span></div>
+          </div>
+          <div class="nc-footer">
+            <span class="nc-refs">◈ Used in 1 workflow</span>
+          </div>
+        </div>
+
+        <!-- Agent 类型卡片 -->
+        <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
+          <div class="nc-top">
+            <div class="nc-type-icon type-agent">🤖</div>
+            <div class="nc-info">
+              <div class="nc-name">代码修复</div>
+              <div class="nc-id">code-fix</div>
+              <div class="nc-desc">根据分析结果自动修复代码问题</div>
+            </div>
+            <span class="type-tag type-tag-agent">Agent</span>
+          </div>
+          <div class="nc-composition">
+            <span class="nc-comp-item"><span class="nc-comp-icon">🤖</span>1 agent</span>
+            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>2 files</span>
+          </div>
+          <div class="nc-interface">
+            <div class="nc-if-label">Input / Output</div>
+            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">analysis</span>: <span class="nc-if-type">{ root, files, fix_hint }</span></div>
+            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">changes</span>: <span class="nc-if-type">FileChange[]</span></div>
+          </div>
+          <div class="nc-footer">
+            <span class="nc-refs">◈ Used in 1 workflow</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 审查分类 -->
+    <div class="category">
+      <div class="category-header">
+        <span class="cat-icon">🔍</span>
+        <span class="cat-name">审查</span>
+        <span class="cat-count">2</span>
+        <span class="cat-line"></span>
+      </div>
+      <div class="card-grid">
+
+        <!-- Skill 类型 -->
+        <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
+          <div class="nc-top">
+            <div class="nc-type-icon type-skill">📄</div>
+            <div class="nc-info">
+              <div class="nc-name">代码审查</div>
+              <div class="nc-id">code-review</div>
+              <div class="nc-desc">审查代码质量，涵盖规范、安全、性能和最佳实践</div>
+            </div>
+            <span class="type-tag type-tag-skill">Skill</span>
+          </div>
+          <div class="nc-composition">
+            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
+          </div>
+          <div class="nc-interface">
+            <div class="nc-if-label">Input / Output</div>
+            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">code</span>: <span class="nc-if-type">string</span></div>
+            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">report</span>: <span class="nc-if-type">{ score, issues[] }</span></div>
+          </div>
+          <div class="nc-footer">
+            <span class="nc-refs">◈ Used in 2 workflows</span>
+          </div>
+        </div>
+
+        <!-- Skill 类型 -->
+        <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
+          <div class="nc-top">
+            <div class="nc-type-icon type-skill">📄</div>
+            <div class="nc-info">
+              <div class="nc-name">安全审计</div>
+              <div class="nc-id">security-audit</div>
+              <div class="nc-desc">扫描代码中的安全漏洞，生成审计报告</div>
+            </div>
+            <span class="type-tag type-tag-skill">Skill</span>
+          </div>
+          <div class="nc-composition">
+            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
+          </div>
+          <div class="nc-interface">
+            <div class="nc-if-label">Input / Output</div>
+            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">scope</span>: <span class="nc-if-type">string</span></div>
+            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">report</span>: <span class="nc-if-type">{ vulns[], severity }</span></div>
+          </div>
+          <div class="nc-footer">
+            <span class="nc-refs">◈ Used in 1 workflow</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 开发分类 -->
+    <div class="category">
+      <div class="category-header">
+        <span class="cat-icon">💻</span>
+        <span class="cat-name">开发</span>
+        <span class="cat-count">3</span>
+        <span class="cat-line"></span>
+      </div>
+      <div class="card-grid">
+
+        <!-- Agent 类型 -->
+        <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
+          <div class="nc-top">
+            <div class="nc-type-icon type-agent">🤖</div>
+            <div class="nc-info">
+              <div class="nc-name">代码生成</div>
+              <div class="nc-id">code-generation</div>
+              <div class="nc-desc">根据需求描述生成代码，支持多种技术栈</div>
+            </div>
+            <span class="type-tag type-tag-agent">Agent</span>
+          </div>
+          <div class="nc-composition">
+            <span class="nc-comp-item"><span class="nc-comp-icon">🤖</span>1 agent</span>
+            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
+          </div>
+          <div class="nc-interface">
+            <div class="nc-if-label">Input / Output</div>
+            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">requirement</span>: <span class="nc-if-type">string</span></div>
+            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">files</span>: <span class="nc-if-type">FileChange[]</span></div>
+          </div>
+          <div class="nc-footer">
+            <span class="nc-refs">◈ Used in 2 workflows</span>
+          </div>
+        </div>
+
+        <!-- Combo 类型 -->
+        <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
+          <div class="nc-top">
+            <div class="nc-type-icon type-combo">📦</div>
+            <div class="nc-info">
+              <div class="nc-name">SQL生成</div>
+              <div class="nc-id">sql-generation</div>
+              <div class="nc-desc">分析数据库Schema后生成SQL语句</div>
+            </div>
+            <span class="type-tag type-tag-combo">Combo</span>
+          </div>
+          <div class="nc-composition">
+            <span class="nc-comp-item"><span class="nc-comp-icon">🤖</span>1 agent</span>
+            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 skill</span>
+            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
+          </div>
+          <div class="nc-interface">
+            <div class="nc-if-label">Input / Output</div>
+            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">requirement</span>: <span class="nc-if-type">string</span></div>
+            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">sql</span>: <span class="nc-if-type">string</span></div>
+          </div>
+          <div class="nc-footer">
+            <span class="nc-refs">◈ Used in 1 workflow</span>
+          </div>
+        </div>
+
+        <!-- Skill 类型 -->
+        <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
+          <div class="nc-top">
+            <div class="nc-type-icon type-skill">📄</div>
+            <div class="nc-info">
+              <div class="nc-name">单元测试生成</div>
+              <div class="nc-id">unit-test-gen</div>
+              <div class="nc-desc">根据代码自动生成单元测试用例</div>
+            </div>
+            <span class="type-tag type-tag-skill">Skill</span>
+          </div>
+          <div class="nc-composition">
+            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
+          </div>
+          <div class="nc-interface">
+            <div class="nc-if-label">Input / Output</div>
+            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">source_files</span>: <span class="nc-if-type">string[]</span></div>
+            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">tests</span>: <span class="nc-if-type">FileChange[]</span></div>
+          </div>
+          <div class="nc-footer">
+            <span class="nc-refs">◈ Used in 1 workflow</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 内容生成分类 -->
+    <div class="category">
+      <div class="category-header">
+        <span class="cat-icon">🎨</span>
+        <span class="cat-name">内容生成</span>
+        <span class="cat-count">2</span>
+        <span class="cat-line"></span>
+      </div>
+      <div class="card-grid">
+
+        <!-- Agent 类型 -->
+        <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
+          <div class="nc-top">
+            <div class="nc-type-icon type-agent">🤖</div>
+            <div class="nc-info">
+              <div class="nc-name">文档生成</div>
+              <div class="nc-id">doc-generation</div>
+              <div class="nc-desc">根据代码或需求生成技术文档</div>
+            </div>
+            <span class="type-tag type-tag-agent">Agent</span>
+          </div>
+          <div class="nc-composition">
+            <span class="nc-comp-item"><span class="nc-comp-icon">🤖</span>1 agent</span>
+            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
+          </div>
+          <div class="nc-interface">
+            <div class="nc-if-label">Input / Output</div>
+            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">source</span>: <span class="nc-if-type">string</span></div>
+            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">document</span>: <span class="nc-if-type">string</span></div>
+          </div>
+          <div class="nc-footer">
+            <span class="nc-refs">◈ Used in 2 workflows</span>
+          </div>
+        </div>
+
+        <!-- Skill 类型 -->
+        <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
+          <div class="nc-top">
+            <div class="nc-type-icon type-skill">📄</div>
+            <div class="nc-info">
+              <div class="nc-name">内容润色</div>
+              <div class="nc-id">content-polish</div>
+              <div class="nc-desc">对生成的内容进行润色和格式优化</div>
+            </div>
+            <span class="type-tag type-tag-skill">Skill</span>
+          </div>
+          <div class="nc-composition">
+            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
+          </div>
+          <div class="nc-interface">
+            <div class="nc-if-label">Input / Output</div>
+            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">content</span>: <span class="nc-if-type">string</span></div>
+            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">polished</span>: <span class="nc-if-type">string</span></div>
+          </div>
+          <div class="nc-footer">
+            <span class="nc-refs">◈ Used in 1 workflow</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 右侧详情面板 -->
+  <div class="detail-panel open" id="detailPanel">
+    <div class="detail-inner">
+      <div class="dp-header">
+        <div class="dp-header-left">
+          <div class="dp-type-icon type-agent" style="background:#1a1a2e;border:1px solid #312e81;border-radius:8px">🤖</div>
+          <h3>代码修复</h3>
+        </div>
+        <button class="dp-close" onclick="document.getElementById('detailPanel').classList.remove('open')">✕</button>
+      </div>
+
+      <div class="dp-body">
+
+        <!-- 基本信息 -->
+        <div class="dp-section">
+          <div class="dp-section-title">Basic Info</div>
+          <div class="dp-field">
+            <label>Name</label>
+            <input type="text" value="code-fix">
+          </div>
+          <div class="dp-field">
+            <label>Display Name</label>
+            <input type="text" value="代码修复">
+          </div>
+          <div class="dp-field">
+            <label>Description</label>
+            <textarea>根据分析结果自动修复代码问题</textarea>
+          </div>
+          <div class="dp-field">
+            <label>Category</label>
+            <select><option>修复</option><option selected>开发</option><option>审查</option><option>内容生成</option><option>自定义</option></select>
+          </div>
+        </div>
+
+        <!-- 组成 -->
+        <div class="dp-section">
+          <div class="dp-section-title">Composition</div>
+          <div class="comp-list">
+            <div class="comp-item">
+              <span class="ci-icon">🤖</span>
+              <span class="ci-name">code-fixer.md</span>
+              <span class="ci-type ci-type-agent">agent</span>
+              <span class="ci-size">2.1KB</span>
+            </div>
+            <div class="comp-item">
+              <span class="ci-icon">📄</span>
+              <span class="ci-name">fix-patterns.json</span>
+              <span class="ci-type ci-type-file">config</span>
+              <span class="ci-size">0.8KB</span>
+            </div>
+            <div class="comp-item">
+              <span class="ci-icon">📄</span>
+              <span class="ci-name">common-fixes.md</span>
+              <span class="ci-type ci-type-skill">skill</span>
+              <span class="ci-size">1.2KB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 接口 -->
+        <div class="dp-section">
+          <div class="dp-section-title">Interface</div>
+          <div class="dp-field">
+            <label>Input Schema</label>
+            <div class="schema-block">
+{<br>
+&nbsp;&nbsp;<span class="sk">"analysis</span>": <span class="sv">{ root, files, fix_hint }</span>,<br>
+&nbsp;&nbsp;<span class="sk">"workspace"</span>: <span class="sv">string</span><br>
+}
+            </div>
+          </div>
+          <div class="dp-field">
+            <label>Output Schema</label>
+            <div class="schema-block">
+{<br>
+&nbsp;&nbsp;<span class="sk">"changes"</span>: <span class="sv">FileChange[]</span>,<br>
+&nbsp;&nbsp;<span class="sk">"summary"</span>: <span class="sv">string</span><br>
+}
+            </div>
+          </div>
+        </div>
+
+        <!-- 配置 -->
+        <div class="dp-section">
+          <div class="dp-section-title">Config</div>
+          <div class="dp-field">
+            <label>Prompt Template</label>
+            <textarea style="min-height:80px">请根据以下分析结果修复代码：
+{analysis}
+
+项目信息:
+- 工作目录: {workspace}
+- 修复提示: {analysis.fix_hint}
+
+请直接修改文件并确保修复后代码可运行。</textarea>
+          </div>
+          <div class="dp-field">
+            <label>Allowed Tools</label>
+            <input type="text" value="Bash,Read,Write,Glob,Grep">
+          </div>
+          <div class="np-toggle">
+            <span>Need Approval</span>
+            <div class="toggle-switch" onclick="this.classList.toggle('on')"></div>
+          </div>
+        </div>
+
+        <!-- 引用 -->
+        <div class="dp-section">
+          <div class="dp-section-title">References</div>
+          <div class="ref-list">
+            <div class="ref-item">
+              <span class="ri-icon">◈</span>
+              <span class="ri-name">Bug修复流程</span>
+              <span class="ri-step">Step 2</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="dp-actions">
+        <button class="btn-secondary">Cancel</button>
+        <button class="btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
