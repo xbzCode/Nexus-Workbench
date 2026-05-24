@@ -31,7 +31,8 @@ from typing import AsyncIterator
 from server.adapters.base import AgentHarnessAdapter
 from server.adapters.events import (
     AdapterEvent, AgentThinkingEvent, ApprovalNeededEvent,
-    ProgressUpdateEvent, ExecutionCompletedEvent,
+    QuestionDetectedEvent, ProgressUpdateEvent,
+    ExecutionCompletedEvent,
 )
 from server.config import CODEBUDDY_PATH, WORKSPACE_DIR
 
@@ -132,6 +133,8 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
             cmd.extend(["--append-system-prompt", config["system_prompt_append"]])
         if config.get("allowed_tools"):
             cmd.extend(["--allowedTools", config["allowed_tools"]])
+        if config.get("disallowed_tools"):
+            cmd.extend(["--disallowedTools", config["disallowed_tools"]])
         return cmd
 
     async def start_session(self, config: dict) -> str:
@@ -313,8 +316,17 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
 
             elif subtype == "result":
                 session["_completed"] = True
+                result_text = data.get("result", "")
+                # 检查 result 中是否包含问题（Agent 完成时可能是在等待回答）
+                if result_text and self._detect_question(result_text):
+                    yield QuestionDetectedEvent(
+                        question=result_text,
+                        context_data={"phase": "result", "session_id": data.get("session_id")},
+                    )
+                    # 不发 ExecutionCompletedEvent，让 task_runner 先处理问题
+                    return
                 yield ExecutionCompletedEvent(output={
-                    "result": data.get("result", ""),
+                    "result": result_text,
                     "session_id": data.get("session_id"),
                     "cost_usd": data.get("total_cost_usd"),
                 })
@@ -337,7 +349,15 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
                     yield AgentThinkingEvent(content=block.get("thinking", ""))
 
                 elif block_type == "text":
-                    yield ProgressUpdateEvent(content=block.get("text", ""))
+                    text = block.get("text", "")
+                    # 检测 Agent 文本中的提问/不确定
+                    if self._detect_question(text):
+                        yield QuestionDetectedEvent(
+                            question=text,
+                            context_data={"phase": "assistant_text", "session_id": session.get("codebuddy_session_id")},
+                        )
+                    else:
+                        yield ProgressUpdateEvent(content=text)
 
                 elif block_type == "tool_use":
                     tool_name = block.get("name", "")
@@ -357,6 +377,57 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
 
         elif msg_type == "user":
             pass
+
+    def _detect_question(self, text: str) -> bool:
+        """检测文本中是否包含提问/不确定的表达
+        
+        检测模式：
+        - 中文问句：？结尾
+        - 英文问句：? 结尾
+        - 确认请求：确认执行？请确认？请选择？
+        - 选择列表：A) ... B) ...
+        - 不确定表达：你想...？你想用哪种...？你希望...？
+        """
+        if not text or len(text) < 5:
+            return False
+
+        # 排除短文本中的常见非问题模式
+        # 如 "PONG"、"FIRST" 等简单回复
+        if len(text) < 20 and not any(c in text for c in "？?"):
+            return False
+
+        # 中文问句模式
+        question_patterns = [
+            "？", "?",           # 问号
+            "确认执行", "请确认",  # 确认请求
+            "请选择", "你想用",    # 选择请求
+            "你希望", "是否需要",  # 询问
+            "还是", "或者",       # 选择
+            "哪种", "哪个",       # 选择
+            "什么方案", "如何处理", # 方案选择
+        ]
+        
+        text_lower = text.lower()
+        for pattern in question_patterns:
+            if pattern in text:
+                # 确认是问句而不是陈述（包含问号更可靠）
+                if pattern in ("？", "?"):
+                    return True
+                # 中文关键词 + 文本较长（>30字说明不是简单问候）
+                if len(text) > 30:
+                    return True
+
+        # 英文问句模式
+        english_question_words = [
+            "would you like", "which option", "do you want",
+            "should i", "would you prefer", "please confirm",
+            "please choose", "please select",
+        ]
+        for pattern in english_question_words:
+            if pattern in text_lower:
+                return True
+
+        return False
 
     async def send_input(self, session_id: str, input_data: dict) -> None:
         """发送输入（stream-json 输入模式）"""
@@ -450,7 +521,13 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
                 pass
 
     async def resume_session(self, session_id: str, prompt: str) -> None:
-        """恢复会话（多轮对话）"""
+        """恢复会话（多轮对话）— 用 cbc --resume 重新启动进程
+        
+        核心交互机制：
+        1. 终止旧进程
+        2. 用 cbc --resume {codebuddy_session_id} -p "用户回答" -y 启动新进程
+        3. 新进程的事件通过替换的 event_queue 传递给 on_event
+        """
         session = self.sessions.get(session_id)
         if not session:
             return
@@ -509,6 +586,8 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
         session["event_queue"] = new_queue
         session["reader_thread"] = reader_thread
         session["_completed"] = False
+
+        logger.info(f"[Adapter] Resumed session={session_id[:8]} with cbc --resume {cb_session_id[:8]}")
 
     async def terminate(self, session_id: str) -> None:
         """终止会话"""

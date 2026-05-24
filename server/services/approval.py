@@ -1,9 +1,15 @@
-"""Approval 审批服务 — 双来源统一（agent + workflow）"""
+"""Approval 审批服务 — 双来源统一（agent + workflow）
+
+审批流程（改造后）：
+  - Agent 提问/审批 → task_runner 事件循环中创建 approval → _wait_for_approval 阻塞
+  - 用户在 Web UI 回答 → resolve_approval 更新状态
+  - _wait_for_approval 检测到已解决 → 返回结果 → task_runner 调 adapter.resume_session
+  - 不再需要 adapter.respond()，resume 逻辑统一在 task_runner 中处理
+"""
 
 from datetime import datetime
 from server.models.schemas import Approval, ApprovalSource, Task, TaskStep, StepState
 from server.services.store import store
-from server.adapters.registry import get_adapter, list_adapters
 from server.core.events import event_bus
 
 
@@ -44,13 +50,18 @@ async def create_approval(
         "task_id": task_id,
         "source": source,
         "title": title,
+        "type": approval_type,
     })
 
     return approval
 
 
 async def resolve_approval(approval_id: str, approved: bool, result_data: dict | None = None) -> Approval:
-    """处理审批"""
+    """处理审批
+    
+    注意：resolve 只是更新审批状态，不再直接调用 adapter。
+    resume 逻辑由 task_runner 的事件循环统一处理。
+    """
     approval = store.approvals.get(approval_id)
     if not approval:
         raise ValueError(f"审批不存在: {approval_id}")
@@ -62,23 +73,6 @@ async def resolve_approval(approval_id: str, approved: bool, result_data: dict |
     approval.result = result_data or {"approved": approved}
     approval.resolved_at = datetime.now().isoformat()
     store.save()
-
-    # 如果是 agent 来源的审批，通知对应的 Adapter
-    if approval.source == ApprovalSource.AGENT:
-        task = store.tasks.get(approval.task_id)
-        if task and task.context.adapter_session_id:
-            # 尝试所有已注册 adapter，找到能响应该 session 的那个
-            for atype in list_adapters():
-                a = get_adapter(atype)
-                try:
-                    await a.respond(
-                        task.context.adapter_session_id,
-                        approval_id,
-                        {"approved": approved},
-                    )
-                    break  # 成功则不再尝试
-                except Exception:
-                    pass  # 该 adapter 不持有此 session，继续尝试
 
     await event_bus.emit("approval:resolved", {
         "approval_id": approval_id,

@@ -65,12 +65,15 @@ async def startup():
 async def health():
     cbc_available = False
     try:
-        result = subprocess.run(
-            [CODEBUDDY_PATH, "--version"],
-            capture_output=True, text=True, timeout=5,
-            encoding="utf-8", errors="replace",
-        )
-        cbc_available = result.returncode == 0
+        from server.adapters.codebuddy import _find_codebuddy
+        cbc_path = _find_codebuddy()
+        if cbc_path:
+            result = subprocess.run(
+                [cbc_path, "--version"],
+                capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
+            )
+            cbc_available = result.returncode == 0
     except Exception:
         pass
 

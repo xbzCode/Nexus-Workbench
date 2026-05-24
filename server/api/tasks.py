@@ -12,6 +12,7 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 from server.services.task_runner import create_task, start_task, cancel_task, get_task_detail
+from server.services.approval import resolve_approval, get_approval
 from server.services.store import store
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -22,6 +23,7 @@ class CreateTaskRequest(BaseModel):
     intent: str = ""
     workflow_id: str = ""
     input_data: dict = {}
+    workspace: str = ""  # 指定工作目录（如项目根目录），不指定则创建空目录
 
 
 @router.post("")
@@ -32,6 +34,7 @@ async def api_create_task(req: CreateTaskRequest):
             title=req.title, intent=req.intent,
             workflow_id=req.workflow_id or None,
             input_data=req.input_data,
+            workspace=req.workspace or None,
         )
         return task.model_dump()
     except Exception as e:
@@ -477,6 +480,50 @@ async def api_diag_test_matcher():
         lines.append(f"Files in workspace: {files}")
 
     return "\n".join(lines)
+
+
+# ============================================================
+# 审批响应 API
+# ============================================================
+
+
+class RespondApprovalRequest(BaseModel):
+    approved: bool = True
+    answer: str = ""       # 用户自由文本回答（用于 question 类型）
+    choice: str = ""       # 用户选择的选项值（用于 choice 类型）
+
+
+@router.post("/{task_id}/approvals/{approval_id}/respond")
+async def api_respond_approval(task_id: str, approval_id: str, req: RespondApprovalRequest):
+    """响应审批/回答 Agent 提问
+    
+    - question 类型：answer 字段传用户回答
+    - choice 类型：choice 字段传选项值
+    - confirm 类型：approved 字段传 true/false
+    """
+    try:
+        # 验证 approval 属于该 task
+        approval = store.approvals.get(approval_id)
+        if not approval:
+            raise HTTPException(404, "审批不存在")
+        if approval.task_id != task_id:
+            raise HTTPException(400, "审批不属于该任务")
+        if approval.status != "pending":
+            raise HTTPException(400, f"审批已处理: {approval.status}")
+
+        # 构建结果数据
+        result_data = {"approved": req.approved}
+        if req.answer:
+            result_data["answer"] = req.answer
+        if req.choice:
+            result_data["choice"] = req.choice
+
+        result = await resolve_approval(approval_id, req.approved, result_data)
+        return {"status": result.status, "approval_id": approval_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, str(e))
 
 
 # ============================================================

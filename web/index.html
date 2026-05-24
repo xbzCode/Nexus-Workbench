@@ -82,6 +82,20 @@
         .btn-approve:hover { background: #22c55e; }
         .btn-reject { background: #dc2626; color: white; border: none; border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px; font-weight: 500; }
         .btn-reject:hover { background: #ef4444; }
+        .btn-answer { background: #2563eb; color: white; border: none; border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .btn-answer:hover { background: #3b82f6; }
+        .answer-input { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px 12px; color: #e2e8f0; font-size: 13px; outline: none; margin-bottom: 8px; }
+        .answer-input:focus { border-color: #38bdf8; }
+        .choice-options { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn-choice { background: #1e293b; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+        .btn-choice:hover { background: #38bdf8; color: #0f172a; }
+        .question-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+        .chip { background: #334155; color: #e2e8f0; border: none; border-radius: 16px; padding: 4px 12px; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+        .chip:hover { background: #38bdf8; color: #0f172a; }
+        .approval-type-badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-left: 6px; font-weight: 500; }
+        .type-badge-question { background: #1e3a5f; color: #60a5fa; }
+        .type-badge-choice { background: #3b1764; color: #a78bfa; }
+        .type-badge-confirm { background: #713f12; color: #fbbf24; }
 
         /* 快照卡片 */
         .snapshot-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
@@ -637,20 +651,59 @@
             }
             html += `</div>`;
 
-            // 审批卡片
+            // 审批卡片 — 根据 type 渲染不同交互
             if (approvals.length > 0) {
                 html += `<h3 style="font-size:14px;color:#fbbf24;margin-bottom:8px;">待审批</h3>`;
                 for (const a of approvals) {
+                    const aType = a.type || 'confirm';
+                    const typeLabel = {question: '提问', choice: '选择', confirm: '确认'}[aType] || aType;
+                    const typeBadgeClass = `type-badge-${aType}`;
                     html += `
                         <div class="approval-card">
-                            <div class="approval-title">${a.title} <span style="font-size:10px;color:#94a3b8;">[${a.source}]</span></div>
+                            <div class="approval-title">${a.title} <span class="approval-type-badge ${typeBadgeClass}">${typeLabel}</span></div>
                             <div class="approval-desc">${a.description || ''}</div>
-                            <div class="approval-actions">
-                                <button class="btn-approve" onclick="resolveApproval('${a.id}', true)">批准</button>
-                                <button class="btn-reject" onclick="resolveApproval('${a.id}', false)">拒绝</button>
-                            </div>
-                        </div>
                     `;
+
+                    if (aType === 'question') {
+                        // 提问类型：快捷选项 + 文本输入 + 提交
+                        const opts = a.context_data?.options || a.options || [];
+                        if (opts.length > 0) {
+                            html += `<div class="question-chips">`;
+                            for (const opt of opts) {
+                                const label = typeof opt === 'string' ? opt : (opt.label || opt.value || '');
+                                const value = typeof opt === 'string' ? opt : (opt.value || opt.label || '');
+                                html += `<button class="chip" onclick="document.getElementById('answerInput_${a.id}').value='${value.replace(/'/g, "\\'")}';respondQuestion('${task.id}','${a.id}')">${label}</button>`;
+                            }
+                            html += `</div>`;
+                        }
+                        html += `
+                            <input class="answer-input" id="answerInput_${a.id}" placeholder="输入你的回答..." onkeydown="if(event.key==='Enter')respondQuestion('${task.id}','${a.id}')">
+                            <div class="approval-actions">
+                                <button class="btn-answer" onclick="respondQuestion('${task.id}','${a.id}')">提交回答</button>
+                                <button class="btn-reject" onclick="respondApprovalOld('${task.id}','${a.id}', false)">跳过</button>
+                            </div>
+                        `;
+                    } else if (aType === 'choice') {
+                        // 选择类型：渲染选项按钮
+                        const opts = a.options || [];
+                        html += `<div class="choice-options">`;
+                        for (const opt of opts) {
+                            const label = opt.label || opt.value || '';
+                            const value = opt.value || opt.label || '';
+                            html += `<button class="btn-choice" onclick="respondChoice('${task.id}','${a.id}','${value}')">${label}</button>`;
+                        }
+                        html += `</div>`;
+                    } else {
+                        // 确认类型：批准/拒绝
+                        html += `
+                            <div class="approval-actions">
+                                <button class="btn-approve" onclick="respondApprovalOld('${task.id}','${a.id}', true)">批准</button>
+                                <button class="btn-reject" onclick="respondApprovalOld('${task.id}','${a.id}', false)">拒绝</button>
+                            </div>
+                        `;
+                    }
+
+                    html += `</div>`;
                 }
             }
 
@@ -854,11 +907,37 @@
             await showTaskDetail(id);
         }
 
-        async function resolveApproval(approvalId, approved) {
-            await fetch(API + '/api/approvals/' + approvalId + '/resolve', {
+        async function respondApprovalOld(taskId, approvalId, approved) {
+            // confirm 类型：批准/拒绝
+            await fetch(API + '/api/tasks/' + taskId + '/approvals/' + approvalId + '/respond', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({approved, result_data: {approved}}),
+                body: JSON.stringify({approved, answer: '', choice: ''}),
+            });
+            if (selectedId) await showTaskDetail(selectedId);
+            await loadTasks();
+        }
+
+        async function respondQuestion(taskId, approvalId) {
+            // question 类型：提交文本回答
+            const input = document.getElementById('answerInput_' + approvalId);
+            const answer = input ? input.value.trim() : '';
+            if (!answer) return; // 空回答不提交
+            await fetch(API + '/api/tasks/' + taskId + '/approvals/' + approvalId + '/respond', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({approved: true, answer, choice: ''}),
+            });
+            if (selectedId) await showTaskDetail(selectedId);
+            await loadTasks();
+        }
+
+        async function respondChoice(taskId, approvalId, choice) {
+            // choice 类型：选择选项
+            await fetch(API + '/api/tasks/' + taskId + '/approvals/' + approvalId + '/respond', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({approved: true, answer: '', choice}),
             });
             if (selectedId) await showTaskDetail(selectedId);
             await loadTasks();

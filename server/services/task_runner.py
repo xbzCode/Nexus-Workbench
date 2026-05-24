@@ -19,7 +19,7 @@ from server.services.registry import get_launcher_skill_content
 from server.config import WORKSPACE_DIR, APPROVAL_TIMEOUT_SECONDS
 from server.adapters.registry import get_adapter
 from server.adapters.events import (
-    AgentThinkingEvent, ApprovalNeededEvent,
+    AgentThinkingEvent, ApprovalNeededEvent, QuestionDetectedEvent,
     ProgressUpdateEvent, ExecutionCompletedEvent,
 )
 from server.core.scheduler import topological_sort, evaluate_condition, resolve_data_mapping
@@ -27,17 +27,26 @@ from server.core.events import event_bus
 
 
 async def create_task(title: str, intent: str, workflow_id: str | None = None,
-                      input_data: dict | None = None) -> Task:
-    """创建任务"""
+                      input_data: dict | None = None,
+                      workspace: str | None = None) -> Task:
+    """创建任务
+
+    Args:
+        workspace: 指定工作目录（如项目根目录），不指定则创建空目录
+    """
     task = Task(
         title=title,
         intent=intent,
         matched_workflow_id=workflow_id,
         input_data=input_data or {},
     )
-    # 创建任务工作目录（以 task_id 命名）
-    workspace_dir = os.path.join(WORKSPACE_DIR, task.id)
-    os.makedirs(workspace_dir, exist_ok=True)
+    if workspace and os.path.isdir(workspace):
+        # 使用用户指定的目录（如项目根目录）
+        workspace_dir = os.path.abspath(workspace)
+    else:
+        # 创建任务工作目录（以 task_id 命名）
+        workspace_dir = os.path.join(WORKSPACE_DIR, task.id)
+        os.makedirs(workspace_dir, exist_ok=True)
     task.context.variables["workspace"] = workspace_dir
 
     store.tasks[task.id] = task
@@ -409,16 +418,38 @@ async def _execute_node_via_adapter(task: Task, node: NodeInstance,
         "workspace": workspace_dir,
     }
 
-    # 如果是 skill 节点，追加 system_prompt 提示 CodeBuddy 使用 launcher skill
-    # 并注入 skill_dir 供 adapter 设置 SKILL_DIR 环境变量
+    # 如果是 skill 节点，写 launcher 指令到文件，用短 prompt 引导 Agent 读取
+    # （长 prompt 通过 cbc -p 传递会被截断）
     if is_skill_node:
         adapter_config["skill_dir"] = node_def.source_dir
-        adapter_config["system_prompt_append"] = (
-            "CRITICAL: This is a skill-based node. You MUST read and follow .codebuddy/skills/_agentflow/SKILL.md as your FIRST action. "
-            "Do NOT use the Skill tool. Do NOT search for the skill. "
-            "Use the Read tool to read .codebuddy/node-config.json first, then read the skill file at the path it specifies. "
-            "The SKILL_DIR environment variable is already set — replace ${SKILL_DIR} with its value in any bash commands. "
-            "If the skill requires user choices and you are in automated mode, use default/recommended options."
+        # 写入任务指令文件
+        task_prompt_path = os.path.join(workspace_dir, ".codebuddy", "task-instructions.md")
+        os.makedirs(os.path.dirname(task_prompt_path), exist_ok=True)
+        with open(task_prompt_path, "w", encoding="utf-8") as f:
+            f.write(
+                "# AgentFlow Skill Node — Task Instructions\n\n"
+                "You are executing a skill-based node in an AgentFlow workflow.\n"
+                "Follow these steps IN ORDER:\n\n"
+                "## Step 1\n"
+                "Use the Read tool to read `.codebuddy/node-config.json` in the current workspace.\n"
+                "This file contains `skill_path`, `skill_entry`, `skill_dir`, and `input_data`.\n\n"
+                "## Step 2\n"
+                "Use the Read tool to read the skill file at `skill_path/skill_entry` from the config.\n"
+                "Follow its instructions EXACTLY.\n\n"
+                "## Step 3\n"
+                "Execute the skill. Replace all `${SKILL_DIR}` with the `skill_dir` value from the config.\n"
+                "If the skill requires user choices and you are in automated mode, use default/recommended options.\n\n"
+                "## Critical Rules\n"
+                "- Do NOT use the Skill tool to invoke skills — use Read tool to load SKILL.md content\n"
+                "- Do NOT search for the skill — the exact path is in node-config.json\n"
+                "- Do NOT skip reading node-config.json — always start from Step 1\n"
+                "- Follow the loaded skill workflow exactly, do NOT improvise\n"
+                "- When running bash commands with SKILL_DIR, substitute the actual path from the config\n"
+            )
+        # 用短 prompt 引导 Agent 读取指令文件，{input} 保留用户输入
+        adapter_config["prompt_template"] = (
+            "Read and follow .codebuddy/task-instructions.md, then execute the skill. "
+            "User input: {input}"
         )
 
     # 启动 Adapter 会话
@@ -450,23 +481,72 @@ async def _execute_node_via_adapter(task: Task, node: NodeInstance,
                 await event_bus.emit("node:progress", {
                     "task_id": task.id, "node_id": node.id, "content": event.content[:200],
                 })
-            elif isinstance(event, ApprovalNeededEvent):
+            elif isinstance(event, QuestionDetectedEvent):
+                # Agent 提问/不确定 — 暂停，等用户回答后 resume
                 approval_count += 1
-                # Agent 级审批：创建审批记录等待用户处理
+                question_text = event.question[:500]
+                logger.info(f"[TaskRunner] Agent question detected: {question_text[:100]}")
+                await event_bus.emit("node:question", {
+                    "task_id": task.id, "node_id": node.id, "question": question_text,
+                })
+                # 创建审批记录，类型为 "question"
+                approval = await create_approval(
+                    task_id=task.id,
+                    step_id=step.id if step else "",
+                    source=ApprovalSource.AGENT,
+                    approval_type="question",
+                    title=f"Agent 提问: {node.id}",
+                    description=question_text,
+                    context_data={
+                        "session_id": session_id,
+                        "node_id": node.id,
+                        "question": question_text,
+                        "options": event.options or [],
+                        **event.context_data,
+                    },
+                )
+                # 等待用户回答
+                result = await _wait_for_approval(approval.id, task.id)
+                # 用用户回答 resume 会话
+                user_answer = ""
+                if result:
+                    user_answer = result.get("answer", result.get("choice", ""))
+                    if not user_answer and result.get("approved"):
+                        user_answer = "确认，请继续执行"
+                if not user_answer:
+                    user_answer = "请继续执行"
+                
+                logger.info(f"[TaskRunner] Resuming with user answer: {user_answer[:100]}")
+                await adapter.resume_session(session_id, user_answer)
+                # resume 后 on_event 会自动切换到新 queue 继续读取
+            elif isinstance(event, ApprovalNeededEvent):
+                # 高风险操作审批 — 暂停，等用户确认
+                approval_count += 1
                 approval = await create_approval(
                     task_id=task.id,
                     step_id=step.id if step else "",
                     source=ApprovalSource.AGENT,
                     approval_type="confirm",
                     title=f"Agent 审批: {node.id}",
-                    description=f"节点 {node.id} 执行中需要确认操作",
-                    context_data={"session_id": session_id, "node_id": node.id},
+                    description=event.approval.get("description", ""),
+                    context_data={
+                        "session_id": session_id,
+                        "node_id": node.id,
+                        **event.approval.get("context_data", {}),
+                    },
                 )
                 await event_bus.emit("node:approval", {
                     "task_id": task.id, "node_id": node.id, "approval_id": approval.id,
                 })
-                # 等待用户处理审批（resolve_approval 会自动将结果回传给 CodeBuddy）
-                await _wait_for_approval(approval.id, task.id)
+                # 等待用户处理审批
+                result = await _wait_for_approval(approval.id, task.id)
+                approved = result and result.get("approved", True)
+                if approved:
+                    # 用户批准 — resume 会话继续执行
+                    await adapter.resume_session(session_id, "用户已确认，请继续执行")
+                else:
+                    # 用户拒绝 — 终止
+                    raise RuntimeError("用户拒绝了 Agent 操作")
             elif isinstance(event, ExecutionCompletedEvent):
                 output = event.output
     except Exception as e:
