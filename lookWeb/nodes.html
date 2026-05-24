@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AgentFlow - Nodes</title>
+<title>AI Agent 工作台 - Nodes</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e0e0e6; height: 100vh; display: flex; flex-direction: column; }
@@ -94,18 +94,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .type-tag-agent { background: #312e81; color: #a78bfa; }
 .type-tag-combo { background: #713f12; color: #fbbf24; }
 
-/* 组成信息 */
-.nc-composition { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 11px; color: #4a4a60; }
-.nc-comp-item { display: flex; align-items: center; gap: 3px; }
-.nc-comp-icon { font-size: 12px; }
-
-/* 接口预览 */
-.nc-interface { background: #0e0e16; border-radius: 8px; padding: 10px 12px; margin-top: 8px; font-family: 'Cascadia Code', monospace; font-size: 11px; line-height: 1.5; }
-.nc-if-label { color: #4a4a60; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
-.nc-if-row { display: flex; align-items: baseline; gap: 4px; color: #6b6b80; }
-.nc-if-arrow { color: #34d399; font-size: 10px; }
-.nc-if-key { color: #7c6aef; }
-.nc-if-type { color: #34d399; }
+/* 能力描述（自然语言 I/O 摘要，替代结构化 Schema） */
+.nc-capability { background: #0e0e16; border-radius: 8px; padding: 8px 12px; margin-top: 8px; font-size: 12px; color: #9090a8; line-height: 1.5; }
+.nc-capability .cap-label { font-size: 9px; font-weight: 600; color: #4a4a60; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+.nc-capability .cap-flow { display: flex; align-items: center; gap: 4px; }
+.nc-capability .cap-in { color: #7c6aef; }
+.nc-capability .cap-arrow { color: #4a4a60; }
+.nc-capability .cap-out { color: #34d399; }
 
 /* 卡片底部 */
 .nc-footer { display: flex; align-items: center; gap: 6px; padding-top: 10px; margin-top: 10px; border-top: 1px solid #1a1a28; font-size: 11px; color: #4a4a60; }
@@ -113,8 +108,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 /* === 详情面板（右侧抽屉） === */
 .detail-panel { width: 0; overflow: hidden; background: #0e0e16; border-left: 1px solid #1a1a28; transition: width .25s ease; flex-shrink: 0; }
-.detail-panel.open { width: 400px; }
-.detail-inner { width: 400px; display: flex; flex-direction: column; height: 100%; }
+.detail-panel.open { width: 440px; }
+.detail-inner { width: 440px; display: flex; flex-direction: column; height: 100%; }
 .dp-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid #1a1a28; flex-shrink: 0; }
 .dp-header-left { display: flex; align-items: center; gap: 10px; }
 .dp-type-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
@@ -131,6 +126,23 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .dp-field input, .dp-field textarea, .dp-field select { width: 100%; background: #12121a; border: 1px solid #1e1e2e; border-radius: 8px; padding: 8px 12px; color: #e0e0e6; font-size: 13px; outline: none; font-family: inherit; }
 .dp-field input:focus, .dp-field textarea:focus { border-color: #7c6aef; }
 .dp-field textarea { resize: vertical; min-height: 60px; font-family: 'Cascadia Code', monospace; font-size: 12px; }
+
+/* 能力描述区（核心，优先展示） */
+.capability-md { background: #12121a; border: 1px solid #1e1e2e; border-radius: 8px; padding: 12px; font-family: 'Cascadia Code', monospace; font-size: 12px; line-height: 1.6; color: #9090a8; min-height: 100px; }
+.capability-md .cm-label { font-size: 9px; font-weight: 600; color: #7c6aef; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+/* 自动推断区域 */
+.inferred-section { background: #0e0e16; border: 1px solid #1a1a28; border-radius: 8px; padding: 12px; margin-top: 8px; }
+.inferred-label { font-size: 10px; font-weight: 600; color: #22d3ee; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; display: flex; align-items: center; gap: 4px; }
+.inferred-label::before { content: '⚡'; }
+
+/* 高级配置折叠区 */
+.advanced-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #6b6b80; cursor: pointer; padding: 10px 0; border: none; background: none; width: 100%; text-align: left; }
+.advanced-toggle:hover { color: #b0b0d0; }
+.adv-chevron { display: inline-block; transition: transform .15s; font-size: 10px; }
+.adv-chevron.open { transform: rotate(90deg); }
+.advanced-content { display: none; }
+.advanced-content.show { display: block; }
 
 /* 组成列表 */
 .comp-list { display: flex; flex-direction: column; gap: 6px; }
@@ -171,13 +183,51 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .btn-primary { background: #7c6aef; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer; font-weight: 600; flex: 1; text-align: center; }
 .btn-primary:hover { background: #6b58de; }
 .btn-danger { background: #7f1d1d; color: #f87171; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer; flex: 1; text-align: center; }
+
+/* === 自然语言创建节点模态框 === */
+.create-modal { display: none; position: fixed; inset: 0; background: #00000088; z-index: 200; align-items: center; justify-content: center; }
+.create-modal.show { display: flex; }
+.create-panel { width: 520px; background: #12121a; border: 1px solid #1e1e2e; border-radius: 16px; overflow: hidden; }
+.cp-header { padding: 20px 24px; border-bottom: 1px solid #1e1e2e; display: flex; align-items: center; gap: 10px; }
+.cp-header h3 { font-size: 16px; font-weight: 600; color: #e0e0e6; flex: 1; }
+.cp-close { background: none; border: none; color: #4a4a60; font-size: 18px; cursor: pointer; }
+.cp-body { padding: 24px; }
+.cp-body textarea { width: 100%; background: #0e0e16; border: 1px solid #1e1e2e; border-radius: 8px; padding: 12px; color: #e0e0e6; font-size: 14px; outline: none; resize: vertical; min-height: 140px; font-family: inherit; line-height: 1.5; }
+.cp-body textarea::placeholder { color: #4a4a60; }
+.cp-body textarea:focus { border-color: #7c6aef; }
+.cp-hint { font-size: 12px; color: #6b6b80; margin-top: 8px; line-height: 1.4; }
+.cp-actions { display: flex; gap: 8px; padding: 16px 24px; border-top: 1px solid #1e1e2e; justify-content: flex-end; }
+.cp-actions .btn-sec { background: #1e1e2e; color: #9090a8; border: 1px solid #2a2a3e; border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer; }
+.cp-actions .btn-pri { background: #7c6aef; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer; font-weight: 600; }
+
+/* 创建模式 Tab 切换 */
+.cp-tabs { display: flex; gap: 2px; padding: 0 24px; background: #0e0e16; border-bottom: 1px solid #1e1e2e; }
+.cp-tab { flex: 1; text-align: center; padding: 10px 0; font-size: 12px; font-weight: 500; color: #6b6b80; cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; }
+.cp-tab.active { color: #e0e0e6; border-bottom-color: #7c6aef; }
+.cp-tab:hover { color: #b0b0d0; }
+.cp-tab-content { display: none; }
+.cp-tab-content.active { display: block; }
+
+/* 导入区域 */
+.import-zone { border: 2px dashed #2a2a3e; border-radius: 10px; padding: 32px 20px; text-align: center; cursor: pointer; transition: all .15s; margin-bottom: 12px; }
+.import-zone:hover { border-color: #7c6aef55; background: #12121a; }
+.import-zone .iz-icon { font-size: 32px; margin-bottom: 8px; }
+.import-zone .iz-title { font-size: 14px; font-weight: 600; color: #d0d0e0; margin-bottom: 4px; }
+.import-zone .iz-desc { font-size: 12px; color: #6b6b80; line-height: 1.4; }
+.import-url-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.import-url-row input { flex: 1; background: #0e0e16; border: 1px solid #1e1e2e; border-radius: 8px; padding: 8px 12px; color: #e0e0e6; font-size: 13px; outline: none; }
+.import-url-row input:focus { border-color: #7c6aef; }
+.import-url-row input::placeholder { color: #4a4a60; }
+.btn-import { background: #164e63; color: #22d3ee; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+.btn-import:hover { background: #0e3a4a; }
+.import-supported { font-size: 11px; color: #4a4a60; line-height: 1.5; margin-top: 4px; }
 </style>
 </head>
 <body>
 
 <!-- 顶栏 -->
 <div class="topbar" style="position:relative">
-  <div class="logo">◆ AgentFlow</div>
+  <div class="logo">◆ AI Agent 工作台</div>
   <nav>
     <a href="chat.html">Chat</a>
     <a href="tasks.html">Tasks</a>
@@ -207,8 +257,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   <div class="notif-dropdown" id="notifDD">
     <div class="notif-header"><span>Notifications</span><button>Clear all</button></div>
     <div class="notif-list">
-      <div class="notif-item"><div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">Bug修复流程 等待审批</span><span class="ni-time">2m ago</span></div><div class="ni-desc">npm test --grep "auth"</div></div>
-      <div class="notif-item"><div class="ni-top"><span class="ni-icon">✅</span><span class="ni-title">需求开发流程 已完成</span><span class="ni-time">10m ago</span></div><div class="ni-desc">新增用户注册接口</div></div>
+      <div class="notif-item"><div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">修复登录页白屏 等待审批</span><span class="ni-time">2m ago</span></div><div class="ni-desc">Workflow · Step 2/3</div></div>
+      <div class="notif-item"><div class="ni-top"><span class="ni-icon">✅</span><span class="ni-title">新增用户注册功能 已完成</span><span class="ni-time">10m ago</span></div><div class="ni-desc">Workflow · 3 steps</div></div>
     </div>
   </div>
 </div>
@@ -223,7 +273,7 @@ document.addEventListener('click', function(e) {
 <!-- 页面标题 -->
 <div class="page-header">
   <h1>Nodes</h1>
-  <button class="btn-new">+ New</button>
+  <button class="btn-new" onclick="document.getElementById('createNodeModal').classList.add('show')">+ New</button>
 </div>
 
 <!-- 主体（含右侧面板） -->
@@ -253,13 +303,13 @@ document.addEventListener('click', function(e) {
             </div>
             <span class="type-tag type-tag-skill">Skill</span>
           </div>
-          <div class="nc-composition">
-            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
-          </div>
-          <div class="nc-interface">
-            <div class="nc-if-label">Input / Output</div>
-            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">bug_desc</span>: <span class="nc-if-type">string</span></div>
-            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">analysis</span>: <span class="nc-if-type">{ root, files, fix_hint }</span></div>
+          <div class="nc-capability">
+            <div class="cap-label">Capability</div>
+            <div class="cap-flow">
+              <span class="cap-in">Bug描述</span>
+              <span class="cap-arrow">→</span>
+              <span class="cap-out">根因 + 影响文件 + 修复建议</span>
+            </div>
           </div>
           <div class="nc-footer">
             <span class="nc-refs">◈ Used in 1 workflow</span>
@@ -277,14 +327,13 @@ document.addEventListener('click', function(e) {
             </div>
             <span class="type-tag type-tag-agent">Agent</span>
           </div>
-          <div class="nc-composition">
-            <span class="nc-comp-item"><span class="nc-comp-icon">🤖</span>1 agent</span>
-            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>2 files</span>
-          </div>
-          <div class="nc-interface">
-            <div class="nc-if-label">Input / Output</div>
-            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">analysis</span>: <span class="nc-if-type">{ root, files, fix_hint }</span></div>
-            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">changes</span>: <span class="nc-if-type">FileChange[]</span></div>
+          <div class="nc-capability">
+            <div class="cap-label">Capability</div>
+            <div class="cap-flow">
+              <span class="cap-in">分析结果(根因+文件+建议)</span>
+              <span class="cap-arrow">→</span>
+              <span class="cap-out">代码变更集</span>
+            </div>
           </div>
           <div class="nc-footer">
             <span class="nc-refs">◈ Used in 1 workflow</span>
@@ -304,7 +353,6 @@ document.addEventListener('click', function(e) {
       </div>
       <div class="card-grid">
 
-        <!-- Skill 类型 -->
         <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
           <div class="nc-top">
             <div class="nc-type-icon type-skill">📄</div>
@@ -315,20 +363,19 @@ document.addEventListener('click', function(e) {
             </div>
             <span class="type-tag type-tag-skill">Skill</span>
           </div>
-          <div class="nc-composition">
-            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
-          </div>
-          <div class="nc-interface">
-            <div class="nc-if-label">Input / Output</div>
-            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">code</span>: <span class="nc-if-type">string</span></div>
-            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">report</span>: <span class="nc-if-type">{ score, issues[] }</span></div>
+          <div class="nc-capability">
+            <div class="cap-label">Capability</div>
+            <div class="cap-flow">
+              <span class="cap-in">代码内容</span>
+              <span class="cap-arrow">→</span>
+              <span class="cap-out">评分 + 问题列表</span>
+            </div>
           </div>
           <div class="nc-footer">
             <span class="nc-refs">◈ Used in 2 workflows</span>
           </div>
         </div>
 
-        <!-- Skill 类型 -->
         <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
           <div class="nc-top">
             <div class="nc-type-icon type-skill">📄</div>
@@ -339,13 +386,13 @@ document.addEventListener('click', function(e) {
             </div>
             <span class="type-tag type-tag-skill">Skill</span>
           </div>
-          <div class="nc-composition">
-            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
-          </div>
-          <div class="nc-interface">
-            <div class="nc-if-label">Input / Output</div>
-            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">scope</span>: <span class="nc-if-type">string</span></div>
-            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">report</span>: <span class="nc-if-type">{ vulns[], severity }</span></div>
+          <div class="nc-capability">
+            <div class="cap-label">Capability</div>
+            <div class="cap-flow">
+              <span class="cap-in">审计范围</span>
+              <span class="cap-arrow">→</span>
+              <span class="cap-out">漏洞列表 + 严重等级</span>
+            </div>
           </div>
           <div class="nc-footer">
             <span class="nc-refs">◈ Used in 1 workflow</span>
@@ -365,7 +412,6 @@ document.addEventListener('click', function(e) {
       </div>
       <div class="card-grid">
 
-        <!-- Agent 类型 -->
         <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
           <div class="nc-top">
             <div class="nc-type-icon type-agent">🤖</div>
@@ -376,21 +422,19 @@ document.addEventListener('click', function(e) {
             </div>
             <span class="type-tag type-tag-agent">Agent</span>
           </div>
-          <div class="nc-composition">
-            <span class="nc-comp-item"><span class="nc-comp-icon">🤖</span>1 agent</span>
-            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
-          </div>
-          <div class="nc-interface">
-            <div class="nc-if-label">Input / Output</div>
-            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">requirement</span>: <span class="nc-if-type">string</span></div>
-            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">files</span>: <span class="nc-if-type">FileChange[]</span></div>
+          <div class="nc-capability">
+            <div class="cap-label">Capability</div>
+            <div class="cap-flow">
+              <span class="cap-in">需求描述</span>
+              <span class="cap-arrow">→</span>
+              <span class="cap-out">代码文件变更</span>
+            </div>
           </div>
           <div class="nc-footer">
             <span class="nc-refs">◈ Used in 2 workflows</span>
           </div>
         </div>
 
-        <!-- Combo 类型 -->
         <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
           <div class="nc-top">
             <div class="nc-type-icon type-combo">📦</div>
@@ -401,22 +445,19 @@ document.addEventListener('click', function(e) {
             </div>
             <span class="type-tag type-tag-combo">Combo</span>
           </div>
-          <div class="nc-composition">
-            <span class="nc-comp-item"><span class="nc-comp-icon">🤖</span>1 agent</span>
-            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 skill</span>
-            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
-          </div>
-          <div class="nc-interface">
-            <div class="nc-if-label">Input / Output</div>
-            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">requirement</span>: <span class="nc-if-type">string</span></div>
-            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">sql</span>: <span class="nc-if-type">string</span></div>
+          <div class="nc-capability">
+            <div class="cap-label">Capability</div>
+            <div class="cap-flow">
+              <span class="cap-in">需求描述</span>
+              <span class="cap-arrow">→</span>
+              <span class="cap-out">SQL语句</span>
+            </div>
           </div>
           <div class="nc-footer">
             <span class="nc-refs">◈ Used in 1 workflow</span>
           </div>
         </div>
 
-        <!-- Skill 类型 -->
         <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
           <div class="nc-top">
             <div class="nc-type-icon type-skill">📄</div>
@@ -427,13 +468,13 @@ document.addEventListener('click', function(e) {
             </div>
             <span class="type-tag type-tag-skill">Skill</span>
           </div>
-          <div class="nc-composition">
-            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
-          </div>
-          <div class="nc-interface">
-            <div class="nc-if-label">Input / Output</div>
-            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">source_files</span>: <span class="nc-if-type">string[]</span></div>
-            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">tests</span>: <span class="nc-if-type">FileChange[]</span></div>
+          <div class="nc-capability">
+            <div class="cap-label">Capability</div>
+            <div class="cap-flow">
+              <span class="cap-in">源文件列表</span>
+              <span class="cap-arrow">→</span>
+              <span class="cap-out">测试文件变更</span>
+            </div>
           </div>
           <div class="nc-footer">
             <span class="nc-refs">◈ Used in 1 workflow</span>
@@ -453,7 +494,6 @@ document.addEventListener('click', function(e) {
       </div>
       <div class="card-grid">
 
-        <!-- Agent 类型 -->
         <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
           <div class="nc-top">
             <div class="nc-type-icon type-agent">🤖</div>
@@ -464,21 +504,19 @@ document.addEventListener('click', function(e) {
             </div>
             <span class="type-tag type-tag-agent">Agent</span>
           </div>
-          <div class="nc-composition">
-            <span class="nc-comp-item"><span class="nc-comp-icon">🤖</span>1 agent</span>
-            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
-          </div>
-          <div class="nc-interface">
-            <div class="nc-if-label">Input / Output</div>
-            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">source</span>: <span class="nc-if-type">string</span></div>
-            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">document</span>: <span class="nc-if-type">string</span></div>
+          <div class="nc-capability">
+            <div class="cap-label">Capability</div>
+            <div class="cap-flow">
+              <span class="cap-in">代码/需求</span>
+              <span class="cap-arrow">→</span>
+              <span class="cap-out">技术文档</span>
+            </div>
           </div>
           <div class="nc-footer">
             <span class="nc-refs">◈ Used in 2 workflows</span>
           </div>
         </div>
 
-        <!-- Skill 类型 -->
         <div class="node-card" onclick="document.getElementById('detailPanel').classList.add('open')">
           <div class="nc-top">
             <div class="nc-type-icon type-skill">📄</div>
@@ -489,13 +527,13 @@ document.addEventListener('click', function(e) {
             </div>
             <span class="type-tag type-tag-skill">Skill</span>
           </div>
-          <div class="nc-composition">
-            <span class="nc-comp-item"><span class="nc-comp-icon">📄</span>1 file</span>
-          </div>
-          <div class="nc-interface">
-            <div class="nc-if-label">Input / Output</div>
-            <div class="nc-if-row"><span class="nc-if-arrow">→</span><span class="nc-if-key">content</span>: <span class="nc-if-type">string</span></div>
-            <div class="nc-if-row"><span class="nc-if-arrow">←</span><span class="nc-if-key">polished</span>: <span class="nc-if-type">string</span></div>
+          <div class="nc-capability">
+            <div class="cap-label">Capability</div>
+            <div class="cap-flow">
+              <span class="cap-in">原始内容</span>
+              <span class="cap-arrow">→</span>
+              <span class="cap-out">润色后内容</span>
+            </div>
           </div>
           <div class="nc-footer">
             <span class="nc-refs">◈ Used in 1 workflow</span>
@@ -520,81 +558,90 @@ document.addEventListener('click', function(e) {
 
       <div class="dp-body">
 
-        <!-- 基本信息 -->
+        <!-- 核心能力描述（第一个 Section，最高优先级） -->
         <div class="dp-section">
-          <div class="dp-section-title">Basic Info</div>
-          <div class="dp-field">
-            <label>Name</label>
-            <input type="text" value="code-fix">
-          </div>
-          <div class="dp-field">
-            <label>Display Name</label>
-            <input type="text" value="代码修复">
-          </div>
-          <div class="dp-field">
-            <label>Description</label>
-            <textarea>根据分析结果自动修复代码问题</textarea>
-          </div>
-          <div class="dp-field">
-            <label>Category</label>
-            <select><option>修复</option><option selected>开发</option><option>审查</option><option>内容生成</option><option>自定义</option></select>
+          <div class="dp-section-title">Capability Description</div>
+          <div class="capability-md">
+            <div class="cm-label">Source MD</div>
+根据分析结果自动修复代码问题。
+
+## 输入
+- analysis: Bug分析结果，包含根因、影响文件、修复建议
+- workspace: 项目工作目录路径
+
+## 输出
+- changes: 代码变更集 (FileChange[])
+- summary: 修复摘要说明
+
+## 行为
+1. 读取分析结果，理解问题根因
+2. 定位需要修改的文件
+3. 生成修复代码并应用变更
+4. 确保修复后代码可运行
           </div>
         </div>
 
-        <!-- 组成 -->
+        <!-- 自动推断区 -->
         <div class="dp-section">
-          <div class="dp-section-title">Composition</div>
-          <div class="comp-list">
-            <div class="comp-item">
-              <span class="ci-icon">🤖</span>
-              <span class="ci-name">code-fixer.md</span>
-              <span class="ci-type ci-type-agent">agent</span>
-              <span class="ci-size">2.1KB</span>
+          <div class="inferred-section">
+            <div class="inferred-label">Auto-inferred from description</div>
+            <div class="dp-field">
+              <label>Adapter Type</label>
+              <input type="text" value="agent" readonly style="opacity:.7">
             </div>
-            <div class="comp-item">
-              <span class="ci-icon">📄</span>
-              <span class="ci-name">fix-patterns.json</span>
-              <span class="ci-type ci-type-file">config</span>
-              <span class="ci-size">0.8KB</span>
-            </div>
-            <div class="comp-item">
-              <span class="ci-icon">📄</span>
-              <span class="ci-name">common-fixes.md</span>
-              <span class="ci-type ci-type-skill">skill</span>
-              <span class="ci-size">1.2KB</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 接口 -->
-        <div class="dp-section">
-          <div class="dp-section-title">Interface</div>
-          <div class="dp-field">
-            <label>Input Schema</label>
-            <div class="schema-block">
+            <div class="dp-field">
+              <label>Input / Output Schema</label>
+              <div class="schema-block">
 {<br>
-&nbsp;&nbsp;<span class="sk">"analysis</span>": <span class="sv">{ root, files, fix_hint }</span>,<br>
+&nbsp;&nbsp;<span class="sk">"analysis"</span>: <span class="sv">{ root, files, fix_hint }</span>,<br>
 &nbsp;&nbsp;<span class="sk">"workspace"</span>: <span class="sv">string</span><br>
-}
-            </div>
-          </div>
-          <div class="dp-field">
-            <label>Output Schema</label>
-            <div class="schema-block">
-{<br>
+} → {<br>
 &nbsp;&nbsp;<span class="sk">"changes"</span>: <span class="sv">FileChange[]</span>,<br>
 &nbsp;&nbsp;<span class="sk">"summary"</span>: <span class="sv">string</span><br>
 }
+              </div>
+            </div>
+            <div class="dp-field">
+              <label>Default Category</label>
+              <input type="text" value="修复" readonly style="opacity:.7">
             </div>
           </div>
         </div>
 
-        <!-- 配置 -->
+        <!-- 高级配置（折叠） -->
         <div class="dp-section">
-          <div class="dp-section-title">Config</div>
-          <div class="dp-field">
-            <label>Prompt Template</label>
-            <textarea style="min-height:80px">请根据以下分析结果修复代码：
+          <button class="advanced-toggle" onclick="document.getElementById('advNodeConfig').classList.toggle('show');this.querySelector('.adv-chevron').classList.toggle('open')">
+            <span class="adv-chevron">▶</span> Advanced Configuration
+          </button>
+          <div class="advanced-content" id="advNodeConfig">
+
+            <!-- 组成 -->
+            <div class="dp-section-title" style="margin-top:8px">Composition</div>
+            <div class="comp-list">
+              <div class="comp-item">
+                <span class="ci-icon">🤖</span>
+                <span class="ci-name">code-fixer.md</span>
+                <span class="ci-type ci-type-agent">agent</span>
+                <span class="ci-size">2.1KB</span>
+              </div>
+              <div class="comp-item">
+                <span class="ci-icon">📄</span>
+                <span class="ci-name">fix-patterns.json</span>
+                <span class="ci-type ci-type-file">config</span>
+                <span class="ci-size">0.8KB</span>
+              </div>
+              <div class="comp-item">
+                <span class="ci-icon">📄</span>
+                <span class="ci-name">common-fixes.md</span>
+                <span class="ci-type ci-type-skill">skill</span>
+                <span class="ci-size">1.2KB</span>
+              </div>
+            </div>
+
+            <!-- Prompt Template -->
+            <div class="dp-section-title" style="margin-top:16px">Prompt Template</div>
+            <div class="dp-field">
+              <textarea style="min-height:80px">请根据以下分析结果修复代码：
 {analysis}
 
 项目信息:
@@ -602,14 +649,20 @@ document.addEventListener('click', function(e) {
 - 修复提示: {analysis.fix_hint}
 
 请直接修改文件并确保修复后代码可运行。</textarea>
-          </div>
-          <div class="dp-field">
-            <label>Allowed Tools</label>
-            <input type="text" value="Bash,Read,Write,Glob,Grep">
-          </div>
-          <div class="np-toggle">
-            <span>Need Approval</span>
-            <div class="toggle-switch" onclick="this.classList.toggle('on')"></div>
+            </div>
+
+            <!-- Allowed Tools -->
+            <div class="dp-field">
+              <label>Allowed Tools</label>
+              <input type="text" value="Bash,Read,Write,Glob,Grep">
+            </div>
+
+            <!-- Need Approval -->
+            <div class="np-toggle">
+              <span>Need Approval</span>
+              <div class="toggle-switch" onclick="this.classList.toggle('on')"></div>
+            </div>
+
           </div>
         </div>
 
@@ -635,6 +688,120 @@ document.addEventListener('click', function(e) {
   </div>
 
 </div>
+
+<!-- 创建节点模态框（支持自然语言 + 三方导入） -->
+<div class="create-modal" id="createNodeModal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="create-panel">
+    <div class="cp-header">
+      <h3>Create Node</h3>
+      <button class="cp-close" onclick="document.getElementById('createNodeModal').classList.remove('show')">✕</button>
+    </div>
+
+    <!-- Tab 切换 -->
+    <div class="cp-tabs">
+      <div class="cp-tab active" onclick="switchCreateTab(this, 'tabNL')">✍️ 自然语言创建</div>
+      <div class="cp-tab" onclick="switchCreateTab(this, 'tabImport')">📦 三方导入</div>
+    </div>
+
+    <!-- Tab: 自然语言创建 -->
+    <div class="cp-tab-content active" id="tabNL">
+      <div class="cp-body">
+        <textarea placeholder="描述这个节点能做什么...&#10;&#10;例如：这是一个代码Bug修复节点，接收Bug分析结果（包含根因、影响文件、修复建议），自动定位并修改代码，输出变更文件列表和修复摘要"></textarea>
+        <div class="cp-hint">系统将从描述自动推断：Adapter类型、输入/输出接口、默认配置和审批策略</div>
+      </div>
+      <div class="cp-actions">
+        <button class="btn-sec" onclick="document.getElementById('createNodeModal').classList.remove('show')">Cancel</button>
+        <button class="btn-pri">▶ Infer & Create</button>
+      </div>
+    </div>
+
+    <!-- Tab: 三方导入 -->
+    <div class="cp-tab-content" id="tabImport">
+      <div class="cp-body">
+        <div class="import-zone" id="importZone" onclick="this.querySelector('input[type=file]').click()">
+          <input type="file" style="display:none" accept=".zip" id="importFileInput" onchange="handleSkillImport(this)">
+          <div class="iz-icon">📦</div>
+          <div class="iz-title">拖拽 Skill 包到此处 或 点击上传</div>
+          <div class="iz-desc">支持 .zip 格式的标准 Skill 包（需包含 SKILL.md）</div>
+        </div>
+        <div class="import-url-row">
+          <input type="text" placeholder="或输入远程 URL 导入（如 GitHub Release .zip 链接）">
+          <button class="btn-import">⬇ 导入</button>
+        </div>
+        <div class="import-supported">
+          标准 Skill 格式：zip 包内需包含 SKILL.md（定义名称、描述、版本等），可选包含 node.yaml、references/、scripts/ 等附加资源
+        </div>
+      </div>
+      <div class="cp-actions">
+        <button class="btn-sec" onclick="document.getElementById('createNodeModal').classList.remove('show')">Cancel</button>
+        <button class="btn-pri">📦 Import & Parse</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function switchCreateTab(tab, tabId) {
+  tab.parentElement.querySelectorAll('.cp-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  document.querySelectorAll('.cp-tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+}
+
+/* Skill 导入校验：只需判断 zip 内包含 SKILL.md */
+function handleSkillImport(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const zone = document.getElementById('importZone');
+
+  // 校验文件格式
+  if (!file.name.endsWith('.zip')) {
+    zone.querySelector('.iz-desc').textContent = '❌ 仅支持 .zip 格式的 Skill 包';
+    zone.querySelector('.iz-desc').style.color = '#f87171';
+    input.value = '';
+    setTimeout(() => {
+      zone.querySelector('.iz-desc').textContent = '支持 .zip 格式的标准 Skill 包（需包含 SKILL.md）';
+      zone.querySelector('.iz-desc').style.color = '';
+    }, 2500);
+    return;
+  }
+
+  // 前端模拟校验：读取 zip 内是否包含 SKILL.md
+  // 实际场景中由后端解压校验，此处展示交互流程
+  zone.querySelector('.iz-icon').textContent = '✅';
+  zone.querySelector('.iz-title').textContent = file.name;
+  zone.querySelector('.iz-desc').textContent = '校验通过：包含 SKILL.md · ' + (file.size / 1024).toFixed(1) + 'KB';
+  zone.querySelector('.iz-desc').style.color = '#4ade80';
+}
+
+/* 拖拽支持 */
+const importZone = document.getElementById('importZone');
+if (importZone) {
+  importZone.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    this.style.borderColor = '#7c6aef';
+    this.style.background = '#1a1a2e';
+  });
+  importZone.addEventListener('dragleave', function(e) {
+    this.style.borderColor = '';
+    this.style.background = '';
+  });
+  importZone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    this.style.borderColor = '';
+    this.style.background = '';
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      const input = document.getElementById('importFileInput');
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      handleSkillImport(input);
+    }
+  });
+}
+</script>
 
 </body>
 </html>

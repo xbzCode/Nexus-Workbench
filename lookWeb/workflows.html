@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AgentFlow - Workflows</title>
+<title>AI Agent 工作台 - Workflows</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e0e0e6; height: 100vh; display: flex; flex-direction: column; }
@@ -26,6 +26,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .notif-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid #1e1e2e; }
 .notif-header span { font-size: 13px; font-weight: 600; color: #e0e0e6; }
 .notif-header button { background: none; border: none; color: #4a4a60; font-size: 12px; cursor: pointer; }
+.notif-header button:hover { color: #9090a8; }
 .notif-list { max-height: 320px; overflow-y: auto; }
 .notif-item { padding: 12px 14px; border-bottom: 1px solid #12121a; cursor: pointer; transition: background .1s; }
 .notif-item:hover { background: #1a1a28; }
@@ -87,11 +88,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .wf-card-info { flex: 1; min-width: 0; }
 .wf-card-name { font-size: 14px; font-weight: 600; color: #d0d0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wf-card-desc { font-size: 12px; color: #6b6b80; margin-top: 2px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.wf-card-tags { display: flex; gap: 6px; margin-top: 4px; }
+.wf-card-tags { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
 .tag { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
 .tag-published { background: #14532d; color: #4ade80; }
 .tag-draft { background: #334155; color: #94a3b8; }
 .tag-installed { background: #164e63; color: #22d3ee; }
+.tag-precipitated { background: #713f12; color: #fbbf24; }
 .tag-dev { background: #164e63; color: #22d3ee; }
 .tag-fix { background: #4c1d95; color: #a78bfa; }
 .tag-content { background: #713f12; color: #fbbf24; }
@@ -138,13 +140,38 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .btn-installed { background: #14532d; color: #4ade80; border: none; border-radius: 6px; padding: 5px 14px; font-size: 11px; cursor: default; font-weight: 600; }
 .btn-preview { background: #1e1e2e; color: #9090a8; border: 1px solid #2a2a3e; border-radius: 6px; padding: 5px 14px; font-size: 11px; cursor: pointer; }
 .btn-preview:hover { border-color: #7c6aef; color: #b0b0d0; }
+
+/* === 自然语言创建工作流模态框 === */
+.create-modal { display: none; position: fixed; inset: 0; background: #00000088; z-index: 200; align-items: center; justify-content: center; }
+.create-modal.show { display: flex; }
+.create-panel { width: 560px; background: #12121a; border: 1px solid #1e1e2e; border-radius: 16px; overflow: hidden; }
+.cp-header { padding: 20px 24px; border-bottom: 1px solid #1e1e2e; display: flex; align-items: center; gap: 10px; }
+.cp-header h3 { font-size: 16px; font-weight: 600; color: #e0e0e6; flex: 1; }
+.cp-header .cp-mode { font-size: 10px; padding: 2px 8px; border-radius: 4px; background: #164e63; color: #22d3ee; font-weight: 600; }
+.cp-close { background: none; border: none; color: #4a4a60; font-size: 18px; cursor: pointer; }
+.cp-body { padding: 24px; }
+.cp-body textarea { width: 100%; background: #0e0e16; border: 1px solid #1e1e2e; border-radius: 8px; padding: 12px; color: #e0e0e6; font-size: 14px; outline: none; resize: vertical; min-height: 120px; font-family: inherit; line-height: 1.5; }
+.cp-body textarea::placeholder { color: #4a4a60; }
+.cp-body textarea:focus { border-color: #7c6aef; }
+.cp-hint { font-size: 12px; color: #6b6b80; margin-top: 8px; line-height: 1.4; }
+.cp-advanced { margin-top: 16px; }
+.cp-advanced-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #6b6b80; cursor: pointer; padding: 6px 0; border: none; background: none; }
+.cp-advanced-toggle:hover { color: #b0b0d0; }
+.cp-advanced-content { display: none; padding-top: 12px; }
+.cp-advanced-content.show { display: block; }
+.cp-field { margin-bottom: 10px; }
+.cp-field label { display: block; font-size: 11px; font-weight: 600; color: #6b6b80; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .5px; }
+.cp-field input, .cp-field select { width: 100%; background: #0e0e16; border: 1px solid #1e1e2e; border-radius: 8px; padding: 8px 12px; color: #e0e0e6; font-size: 13px; outline: none; }
+.cp-actions { display: flex; gap: 8px; padding: 16px 24px; border-top: 1px solid #1e1e2e; justify-content: flex-end; }
+.cp-actions .btn-secondary { background: #1e1e2e; color: #9090a8; border: 1px solid #2a2a3e; border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer; }
+.cp-actions .btn-primary { background: #7c6aef; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer; font-weight: 600; }
 </style>
 </head>
 <body>
 
 <!-- 顶栏 -->
 <div class="topbar" style="position:relative">
-  <div class="logo">◆ AgentFlow</div>
+  <div class="logo">◆ AI Agent 工作台</div>
   <nav>
     <a href="chat.html">Chat</a>
     <a href="tasks.html">Tasks</a>
@@ -174,8 +201,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   <div class="notif-dropdown" id="notifDD">
     <div class="notif-header"><span>Notifications</span><button>Clear all</button></div>
     <div class="notif-list">
-      <div class="notif-item"><div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">Bug修复流程 等待审批</span><span class="ni-time">2m ago</span></div><div class="ni-desc">npm test --grep "auth"</div></div>
-      <div class="notif-item"><div class="ni-top"><span class="ni-icon">✅</span><span class="ni-title">需求开发流程 已完成</span><span class="ni-time">10m ago</span></div><div class="ni-desc">新增用户注册接口</div></div>
+      <div class="notif-item"><div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">修复登录页白屏 等待审批</span><span class="ni-time">2m ago</span></div><div class="ni-desc">Workflow · Step 2/3</div></div>
+      <div class="notif-item"><div class="ni-top"><span class="ni-icon">✅</span><span class="ni-title">新增用户注册功能 已完成</span><span class="ni-time">10m ago</span></div><div class="ni-desc">Workflow · 3 steps</div></div>
     </div>
   </div>
 </div>
@@ -194,7 +221,7 @@ document.addEventListener('click', function(e) {
     <button class="tab-btn active" onclick="switchPageTab(this, 'myWorkflows')">My Workflows</button>
     <button class="tab-btn" onclick="switchPageTab(this, 'marketplace')">Marketplace</button>
   </div>
-  <button class="btn-new">+ New</button>
+  <button class="btn-new" onclick="document.getElementById('createModal').classList.add('show')">+ New</button>
 </div>
 
 <!-- 主体 -->
@@ -240,7 +267,7 @@ document.addEventListener('click', function(e) {
             <div class="wf-card-info">
               <div class="wf-card-name">需求开发流程</div>
               <div class="wf-card-desc">代码生成 → 代码审查，适用于新需求快速开发</div>
-              <div class="wf-card-tags"><span class="tag tag-published">published</span><span class="tag tag-dev">dev</span></div>
+              <div class="wf-card-tags"><span class="tag tag-published">published</span><span class="tag tag-precipitated">from task</span><span class="tag tag-dev">dev</span></div>
             </div>
           </div>
           <div class="mini-flow">
@@ -295,7 +322,7 @@ document.addEventListener('click', function(e) {
             <div class="wf-card-info">
               <div class="wf-card-name">写技术文档</div>
               <div class="wf-card-desc">分析代码 → 生成文档 → 审查校对</div>
-              <div class="wf-card-tags"><span class="tag tag-draft">draft</span><span class="tag tag-content">content</span></div>
+              <div class="wf-card-tags"><span class="tag tag-draft">draft</span><span class="tag tag-precipitated">from task</span><span class="tag tag-content">content</span></div>
             </div>
           </div>
           <div class="mini-flow">
@@ -499,6 +526,43 @@ document.addEventListener('click', function(e) {
 
   </div>
 
+</div>
+
+<!-- 自然语言创建工作流模态框 -->
+<div class="create-modal" id="createModal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="create-panel">
+    <div class="cp-header">
+      <h3>Create Workflow</h3>
+      <span class="cp-mode">Natural Language</span>
+      <button class="cp-close" onclick="document.getElementById('createModal').classList.remove('show')">✕</button>
+    </div>
+    <div class="cp-body">
+      <textarea placeholder="描述这个工作流应该做什么...&#10;&#10;例如：这是一个代码Bug修复流程，先分析Bug根因，再自动修复代码，最后审查修复结果"></textarea>
+      <div class="cp-hint">系统将根据描述自动推断节点组合、审批点和验证策略</div>
+
+      <!-- 高级配置（折叠） -->
+      <div class="cp-advanced">
+        <button class="cp-advanced-toggle" onclick="document.getElementById('advContent').classList.toggle('show');this.querySelector('.adv-chevron').classList.toggle('open')">
+          <span class="adv-chevron" style="display:inline-block;transition:transform .15s">▶</span> Advanced (DAG Editor)
+        </button>
+        <div class="cp-advanced-content" id="advContent">
+          <div class="cp-field">
+            <label>Category</label>
+            <select><option>开发</option><option>内容生成</option><option>运维</option><option>自定义</option></select>
+          </div>
+          <div class="cp-field">
+            <label>Validation Strategy</label>
+            <select><option>auto-infer</option><option>manual-test</option><option>skip-validation</option></select>
+          </div>
+          <div style="font-size:11px;color:#4a4a60;margin-top:4px">完整的 DAG 编辑器将在创建后可用</div>
+        </div>
+      </div>
+    </div>
+    <div class="cp-actions">
+      <button class="btn-secondary" onclick="document.getElementById('createModal').classList.remove('show')">Cancel</button>
+      <button class="btn-primary">▶ Create & Generate</button>
+    </div>
+  </div>
 </div>
 
 <script>

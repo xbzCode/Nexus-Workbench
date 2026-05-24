@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AgentFlow - Chat</title>
+<title>AI Agent 工作台 - Chat</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e0e0e6; height: 100vh; display: flex; flex-direction: column; }
@@ -64,17 +64,26 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .ud-item:hover { background: #1a1a28; color: #e0e0e6; }
 .ud-divider { height: 1px; background: #1e1e2e; margin: 4px 0; }
 
-/* === 主体：纯下发界面 === */
+/* === 主体：任务下发界面 === */
 .chat-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 28px; }
 
-/* 任务已创建提示 */
-.task-created { display: none; background: #12121a; border: 1px solid #166534; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; align-items: center; gap: 12px; width: 100%; max-width: 600px; }
-.task-created.show { display: flex; }
-.task-created .tc-icon { font-size: 20px; }
-.task-created .tc-text { flex: 1; font-size: 13px; color: #4ade80; }
-.task-created .tc-text small { display: block; font-size: 11px; color: #6b6b80; margin-top: 2px; }
-.task-created a { color: #7c6aef; text-decoration: none; font-size: 12px; font-weight: 500; }
-.task-created a:hover { text-decoration: underline; }
+/* 任务自动执行提示 */
+.task-auto-running { display: none; background: #12121a; border: 1px solid #166534; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; width: 100%; max-width: 640px; }
+.task-auto-running.show { display: block; }
+.task-auto-running .tar-top { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.task-auto-running .tar-icon { font-size: 20px; }
+.task-auto-running .tar-text { flex: 1; font-size: 13px; color: #4ade80; }
+.task-auto-running .tar-text small { display: block; font-size: 11px; color: #6b6b80; margin-top: 2px; }
+.task-auto-running a { color: #7c6aef; text-decoration: none; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.task-auto-running a:hover { text-decoration: underline; }
+
+/* 匹配策略图例 */
+.match-strategy { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 12px; background: #0e0e16; border-radius: 8px; }
+.ms-node { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #9090a8; padding: 3px 8px; border-radius: 6px; }
+.ms-node.ms-workflow { background: #14532d; color: #4ade80; }
+.ms-node.ms-assembly { background: #164e63; color: #22d3ee; }
+.ms-node.ms-bare { background: #334155; color: #94a3b8; }
+.ms-arrow { color: #2a2a3e; font-size: 12px; }
 
 /* 标题 */
 .chat-title { font-size: 24px; font-weight: 600; color: #e0e0e6; margin-bottom: 8px; text-align: center; }
@@ -98,23 +107,42 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .example-item .ex-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
 .example-item .ex-text { font-size: 13px; color: #9090a8; line-height: 1.4; }
 .example-item .ex-hint { font-size: 11px; color: #4a4a60; margin-top: 2px; }
+.ex-strategy { font-size: 10px; padding: 1px 6px; border-radius: 4px; font-weight: 500; }
+.ex-strategy-workflow { background: #14532d; color: #4ade80; }
+.ex-strategy-assembly { background: #164e63; color: #22d3ee; }
 
-/* 工作流匹配结果（输入后展示） */
+/* 匹配结果（需确认后执行） */
 .match-result { display: none; width: 100%; max-width: 640px; margin-top: 24px; }
 .match-result.show { display: block; }
 .match-card { background: #12121a; border: 1px solid #1e1e2e; border-radius: 12px; padding: 18px; }
 .match-card .mc-label { font-size: 11px; color: #6b6b80; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
 .match-card .mc-name { font-size: 16px; font-weight: 600; color: #e0e0e6; display: flex; align-items: center; gap: 8px; }
 .match-card .mc-name .mc-icon { color: #7c6aef; }
-.match-card .mc-conf { font-size: 11px; color: #4a4a60; margin-left: 4px; }
+.match-card .mc-strategy { font-size: 10px; padding: 2px 8px; border-radius: 6px; font-weight: 600; margin-left: 8px; }
+.mc-strategy-workflow { background: #14532d; color: #4ade80; }
+.mc-strategy-assembly { background: #164e63; color: #22d3ee; }
+.mc-strategy-bare { background: #334155; color: #94a3b8; }
 .mini-flow { display: flex; align-items: center; gap: 6px; padding: 10px 0; margin-top: 10px; }
 .mini-flow-node { background: #1e1e2e; border: 1px solid #2a2a3e; border-radius: 8px; padding: 6px 12px; font-size: 12px; color: #9090a8; white-space: nowrap; }
 .mini-flow-arrow { color: #2a2a3e; font-size: 14px; }
-.match-actions { display: flex; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid #1a1a28; }
-.btn-primary { background: #7c6aef; color: #fff; border: none; border-radius: 8px; padding: 8px 20px; font-size: 13px; cursor: pointer; font-weight: 600; }
-.btn-primary:hover { background: #6b58de; }
+.match-confirm { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 14px; border-top: 1px solid #1a1a28; }
+.match-confirm .mc-hint { font-size: 12px; color: #6b6b80; flex: 1; }
+.btn-confirm { background: #7c6aef; color: #fff; border: none; border-radius: 8px; padding: 8px 20px; font-size: 13px; cursor: pointer; font-weight: 600; }
+.btn-confirm:hover { background: #6b58de; }
 .btn-ghost { background: none; color: #6b6b80; border: 1px solid #2a2a3e; border-radius: 8px; padding: 8px 20px; font-size: 13px; cursor: pointer; }
 .btn-ghost:hover { color: #b0b0d0; border-color: #4a4a5e; }
+
+/* 匹配结果-未匹配到 */
+.match-unmatched { background: #12121a; border: 1px solid #1e1e2e; border-radius: 12px; padding: 18px; margin-top: 24px; width: 100%; max-width: 640px; display: none; }
+.match-unmatched.show { display: block; }
+.match-unmatched .mu-icon { font-size: 24px; margin-bottom: 8px; }
+.match-unmatched .mu-title { font-size: 15px; font-weight: 600; color: #e0e0e6; margin-bottom: 4px; }
+.match-unmatched .mu-desc { font-size: 12px; color: #6b6b80; margin-bottom: 14px; line-height: 1.5; }
+.mu-options { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn-assembly { background: #164e63; color: #22d3ee; border: none; border-radius: 8px; padding: 8px 18px; font-size: 13px; cursor: pointer; font-weight: 600; }
+.btn-assembly:hover { background: #0e3a4a; }
+.btn-bare { background: #334155; color: #94a3b8; border: none; border-radius: 8px; padding: 8px 18px; font-size: 13px; cursor: pointer; font-weight: 500; }
+.btn-bare:hover { background: #283040; }
 
 /* Slash 命令 */
 .slash-menu { position: absolute; bottom: 100%; left: 0; width: 280px; background: #12121a; border: 1px solid #1e1e2e; border-radius: 10px; padding: 6px; margin-bottom: 8px; display: none; box-shadow: 0 8px 24px #00000055; z-index: 10; }
@@ -129,7 +157,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 <!-- 顶栏 -->
 <div class="topbar" style="position:relative">
-  <div class="logo">◆ AgentFlow</div>
+  <div class="logo">◆ AI Agent 工作台</div>
   <nav>
     <a href="chat.html" class="active">Chat</a>
     <a href="tasks.html">Tasks</a>
@@ -181,46 +209,56 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <div class="notif-list">
       <a href="tasks.html" style="text-decoration:none">
         <div class="notif-item">
-          <div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">Bug修复流程 等待审批</span><span class="ni-time">2m ago</span></div>
-          <div class="ni-desc">npm test --grep "auth"</div>
+          <div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">等待审批：修复登录页白屏</span><span class="ni-time">2m ago</span></div>
+          <div class="ni-desc">Bug修复流程 · Step 2/3</div>
         </div>
       </a>
       <a href="tasks.html" style="text-decoration:none">
         <div class="notif-item">
-          <div class="ni-top"><span class="ni-icon">✅</span><span class="ni-title">需求开发流程 已完成</span><span class="ni-time">10m ago</span></div>
-          <div class="ni-desc">新增用户注册接口</div>
+          <div class="ni-top"><span class="ni-icon">✅</span><span class="ni-title">任务完成：新增用户注册功能</span><span class="ni-time">10m ago</span></div>
+          <div class="ni-desc">需求开发流程 · 3 steps</div>
         </div>
       </a>
       <a href="tasks.html" style="text-decoration:none">
         <div class="notif-item">
-          <div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">代码审查 等待审批</span><span class="ni-time">1h ago</span></div>
-          <div class="ni-desc">重构数据库连接层</div>
+          <div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">等待审批：重构数据库连接层</span><span class="ni-time">1h ago</span></div>
+          <div class="ni-desc">节点组装 · 2 nodes</div>
         </div>
       </a>
     </div>
   </div>
 </div>
 
-<!-- 主体：纯下发界面 -->
+<!-- 主体：任务下发界面 -->
 <div class="chat-main">
 
-  <!-- 任务创建成功提示（默认隐藏，提交后显示） -->
-  <div class="task-created" id="taskCreated">
-    <span class="tc-icon">✅</span>
-    <div class="tc-text">
-      任务已创建：修复登录页白屏
-      <small>◈ Bug修复流程 · Step 1/3</small>
+  <!-- 自动执行状态提示（确认后显示） -->
+  <div class="task-auto-running" id="taskAutoRunning">
+    <div class="tar-top">
+      <span class="tar-icon">✅</span>
+      <div class="tar-text">
+        任务已开始执行：修复登录页白屏
+        <small>◈ Bug修复流程 · Running</small>
+      </div>
+      <a href="tasks.html">View Progress →</a>
     </div>
-    <a href="tasks.html">View in Tasks →</a>
+    <!-- 匹配策略图例 -->
+    <div class="match-strategy">
+      <span class="ms-node ms-workflow">Workflow 优先</span>
+      <span class="ms-arrow">→</span>
+      <span class="ms-node ms-assembly">Node 组装</span>
+      <span class="ms-arrow">→</span>
+      <span class="ms-node ms-bare">Bare Agent</span>
+    </div>
   </div>
 
   <div class="chat-title">What do you want to do?</div>
-  <div class="chat-subtitle">Describe your task, I'll match the best workflow and execute it.</div>
+  <div class="chat-subtitle">描述你的任务，系统自动匹配工作流或组装节点执行，匹配后需你确认再开始</div>
 
   <div class="input-wrapper">
     <div class="input-box">
       <textarea rows="1" placeholder="Describe your task...  Type / for commands" id="inputBox" onfocus="if(this.value==='/')document.getElementById('slashMenu').classList.add('show')"></textarea>
-      <button class="btn-send" onclick="document.getElementById('taskCreated').classList.add('show')">↑</button>
+      <button class="btn-send" onclick="document.getElementById('matchResult').classList.add('show')">↑</button>
     </div>
     <div class="input-hint">Type <kbd>/</kbd> for commands · Press <kbd>Enter</kbd> to send</div>
 
@@ -228,35 +266,49 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <div class="slash-menu" id="slashMenu">
       <div class="slash-item"><span class="sl-cmd">/rollback</span><span class="sl-desc">回滚到指定步骤</span></div>
       <div class="slash-item"><span class="sl-cmd">/debug</span><span class="sl-desc">给下个节点设断点</span></div>
-      <div class="slash-item"><span class="sl-cmd">/workflow</span><span class="sl-desc">重新匹配工作流</span></div>
+      <div class="slash-item"><span class="sl-cmd">/rematch</span><span class="sl-desc">重新匹配执行策略</span></div>
       <div class="slash-item"><span class="sl-cmd">/cancel</span><span class="sl-desc">取消当前任务</span></div>
     </div>
 
-    <!-- 工作流匹配结果（输入后展示，默认隐藏） -->
-    <!--
-    <div class="match-result show">
+    <!-- 匹配结果：展示匹配结果，需用户确认后执行 -->
+    <div class="match-result show" id="matchResult">
       <div class="match-card">
-        <div class="mc-label">Matched Workflow</div>
-        <div class="mc-name"><span class="mc-icon">◈</span>Bug修复流程<span class="mc-conf">confidence: 0.92</span></div>
+        <div class="mc-label">Matched Result</div>
+        <div class="mc-name">
+          <span class="mc-icon">◈</span>Bug修复流程
+          <span class="mc-strategy mc-strategy-workflow">WORKFLOW</span>
+        </div>
         <div class="mini-flow">
           <span class="mini-flow-node">🐛 Bug分析</span><span class="mini-flow-arrow">→</span>
           <span class="mini-flow-node">✏️ 代码修复</span><span class="mini-flow-arrow">→</span>
           <span class="mini-flow-node">🔍 代码审查</span>
         </div>
-        <div class="match-actions">
-          <button class="btn-primary">▶ Confirm & Run</button>
-          <button class="btn-ghost">Use bare agent</button>
+        <div class="match-confirm">
+          <span class="mc-hint">系统匹配到以上工作流，确认后将自动执行（仅在审批点打断）</span>
+          <button class="btn-ghost" onclick="document.getElementById('matchResult').classList.remove('show')">✕ 重新描述</button>
+          <button class="btn-confirm" onclick="document.getElementById('matchResult').classList.remove('show');document.getElementById('taskAutoRunning').classList.add('show')">✓ 确认执行</button>
         </div>
       </div>
     </div>
-    -->
+
+    <!-- 未匹配到工作流时的备选方案 -->
+    <div class="match-unmatched" id="matchUnmatched">
+      <div class="mu-icon">🤔</div>
+      <div class="mu-title">未匹配到已有工作流</div>
+      <div class="mu-desc">系统未找到完全匹配的工作流，你可以选择以下执行方式：</div>
+      <div class="mu-options">
+        <button class="btn-assembly" onclick="document.getElementById('matchUnmatched').classList.remove('show');document.getElementById('taskAutoRunning').classList.add('show')">◈ 自动组装节点执行</button>
+        <button class="btn-bare" onclick="document.getElementById('matchUnmatched').classList.remove('show');document.getElementById('taskAutoRunning').classList.add('show')">🤖 使用裸 Agent 直接执行</button>
+        <button class="btn-ghost" onclick="document.getElementById('matchUnmatched').classList.remove('show')">✕ 取消</button>
+      </div>
+    </div>
   </div>
 
   <div class="quick-examples">
-    <div class="example-item"><span class="ex-icon">🐛</span><div><div class="ex-text">修复登录页白屏问题</div><div class="ex-hint">Bug修复流程</div></div></div>
-    <div class="example-item"><span class="ex-icon">✨</span><div><div class="ex-text">新增用户注册功能</div><div class="ex-hint">需求开发流程</div></div></div>
-    <div class="example-item"><span class="ex-icon">📖</span><div><div class="ex-text">生成接口文档</div><div class="ex-hint">文档生成流程</div></div></div>
-    <div class="example-item"><span class="ex-icon">🔄</span><div><div class="ex-text">重构数据库连接层</div><div class="ex-hint">裸Agent执行</div></div></div>
+    <div class="example-item"><span class="ex-icon">🐛</span><div><div class="ex-text">修复登录页白屏问题</div><div class="ex-hint"><span class="ex-strategy ex-strategy-workflow">Workflow</span></div></div></div>
+    <div class="example-item"><span class="ex-icon">✨</span><div><div class="ex-text">新增用户注册功能</div><div class="ex-hint"><span class="ex-strategy ex-strategy-workflow">Workflow</span></div></div></div>
+    <div class="example-item"><span class="ex-icon">📖</span><div><div class="ex-text">生成接口文档</div><div class="ex-hint"><span class="ex-strategy ex-strategy-assembly">Node 组装</span></div></div></div>
+    <div class="example-item"><span class="ex-icon">🔄</span><div><div class="ex-text">重构数据库连接层</div><div class="ex-hint"><span class="ex-strategy ex-strategy-assembly">Node 组装</span></div></div></div>
   </div>
 
 </div>
@@ -270,20 +322,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <input style="width:100%;background:#0e0e16;border:1px solid #1e1e2e;border-radius:8px;padding:8px 12px;color:#e0e0e6;font-size:13px;outline:none" value="Zhang San">
     </div>
     <div style="margin-bottom:14px">
-      <label style="display:block;font-size:11px;font-weight:600;color:#6b6b80;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Avatar</label>
-      <div style="display:flex;gap:10px;margin-top:4px">
-        <div style="width:40px;height:40px;border-radius:50%;background:#7c6aef;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;font-weight:600;cursor:pointer;border:2px solid #7c6aef">Z</div>
-        <div style="width:40px;height:40px;border-radius:50%;background:#ef4444;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;font-weight:600;cursor:pointer;border:2px solid transparent">Z</div>
-        <div style="width:40px;height:40px;border-radius:50%;background:#34d399;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;font-weight:600;cursor:pointer;border:2px solid transparent">Z</div>
-        <div style="width:40px;height:40px;border-radius:50%;background:#f59e0b;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;font-weight:600;cursor:pointer;border:2px solid transparent">Z</div>
-        <div style="width:40px;height:40px;border-radius:50%;background:#1e1e2e;border:1px dashed #2a2a3e;display:flex;align-items:center;justify-content:center;font-size:14px;color:#4a4a60;cursor:pointer">↑</div>
-      </div>
-    </div>
-    <div style="margin-bottom:14px">
       <label style="display:block;font-size:11px;font-weight:600;color:#6b6b80;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Default Workspace</label>
       <input style="width:100%;background:#0e0e16;border:1px solid #1e1e2e;border-radius:8px;padding:8px 12px;color:#e0e0e6;font-size:13px;outline:none" value="d:/projects/my-app">
     </div>
-    <div style="margin-bottom:20px">
+    <div style="margin-bottom:14px">
       <label style="display:block;font-size:11px;font-weight:600;color:#6b6b80;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Default LLM Model</label>
       <select style="width:100%;background:#0e0e16;border:1px solid #1e1e2e;border-radius:8px;padding:8px 12px;color:#e0e0e6;font-size:13px;outline:none">
         <option>glm-4-plus</option>
@@ -291,6 +333,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
         <option>glm-3-turbo</option>
         <option>gpt-4o</option>
       </select>
+    </div>
+    <div style="margin-bottom:20px">
+      <label style="display:block;font-size:11px;font-weight:600;color:#6b6b80;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Execution Mode</label>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#14532d;border:1px solid #166534;border-radius:8px;cursor:pointer;font-size:12px;color:#4ade80">
+          <input type="radio" name="execMode" checked style="accent-color:#4ade80"> 匹配后确认执行（默认）
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#1e1e2e;border:1px solid #2a2a3e;border-radius:8px;cursor:pointer;font-size:12px;color:#9090a8">
+          <input type="radio" name="execMode" style="accent-color:#7c6aef"> 匹配后直接执行
+        </label>
+      </div>
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button style="background:#1e1e2e;color:#9090a8;border:1px solid #2a2a3e;border-radius:8px;padding:8px 16px;font-size:12px;cursor:pointer" onclick="document.getElementById('settingsModal').style.display='none'">Cancel</button>

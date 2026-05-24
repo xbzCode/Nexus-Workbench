@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AgentFlow - Tasks</title>
+<title>AI Agent 工作台 - Tasks</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e0e0e6; height: 100vh; display: flex; flex-direction: column; }
@@ -64,7 +64,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 .btn-new-task { background: #7c6aef; color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 12px; cursor: pointer; font-weight: 600; }
 .btn-new-task:hover { background: #6b58de; }
-.topbar .user { width: 28px; height: 28px; border-radius: 50%; background: #2a2a3e; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #7c6aef; }
 
 /* === 主体 === */
 .main { display: flex; flex: 1; overflow: hidden; }
@@ -83,15 +82,27 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 /* 任务卡片列表 */
 .task-list { flex: 1; overflow-y: auto; padding: 8px; }
-.task-card { background: #12121a; border: 1px solid #1e1e2e; border-radius: 10px; padding: 14px; margin-bottom: 8px; cursor: pointer; transition: all .15s; }
+.task-card { background: #12121a; border: 1px solid #1e1e2e; border-radius: 10px; padding: 14px; margin-bottom: 8px; cursor: pointer; transition: all .15s; position: relative; }
 .task-card:hover { border-color: #7c6aef55; }
 .task-card.active { border-color: #7c6aef; box-shadow: 0 0 12px #7c6aef11; }
 .task-card.has-approval { border-color: #4a3a10; }
 .tc-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .tc-title { font-size: 13px; font-weight: 500; color: #d0d0e0; flex: 1; }
 .tc-time { font-size: 10px; color: #4a4a60; }
-.tc-flow { font-size: 11px; color: #6b6b80; margin-bottom: 8px; }
+
+/* 执行策略标签 */
+.tc-strategy { font-size: 9px; padding: 2px 7px; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; }
+.tc-strategy-workflow { background: #14532d; color: #4ade80; }
+.tc-strategy-assembly { background: #164e63; color: #22d3ee; }
+.tc-strategy-bare { background: #334155; color: #94a3b8; }
+
+.tc-flow { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #6b6b80; margin-bottom: 8px; }
 .tc-flow .flow-icon { color: #7c6aef; }
+
+/* 沉淀按钮 */
+.btn-precipitate { display: none; position: absolute; top: 8px; right: 8px; background: #713f12; color: #fbbf24; border: none; border-radius: 6px; padding: 3px 8px; font-size: 10px; cursor: pointer; font-weight: 600; }
+.btn-precipitate:hover { background: #92400e; }
+.task-card.done:hover .btn-precipitate { display: block; }
 
 /* 进度节点链 */
 .tc-progress { display: flex; align-items: center; gap: 4px; }
@@ -120,9 +131,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .btn-icon { background: #1e1e2e; color: #9090a8; border: 1px solid #2a2a3e; border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
 .btn-icon:hover { border-color: #7c6aef; color: #b0b0d0; }
 .dh-meta { display: flex; align-items: center; gap: 16px; font-size: 12px; color: #6b6b80; }
-.dh-meta .dm-flow { display: flex; align-items: center; gap: 5px; }
-.dh-meta .dm-flow .flow-icon { color: #7c6aef; font-size: 14px; }
-.dh-meta .dm-flow .flow-name { color: #9090a8; }
+.dh-meta .dm-strategy { display: flex; align-items: center; gap: 5px; }
+.dh-meta .dm-strategy .strategy-icon { font-size: 14px; }
+.dh-meta .dm-strategy .strategy-name { color: #9090a8; }
+.dh-meta .dm-source { color: #6b6b80; }
+.dh-meta .dm-source a { color: #7c6aef; text-decoration: none; }
 
 /* DAG迷你总览 */
 .dag-overview { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 14px; background: #12121a; border-radius: 8px; }
@@ -155,10 +168,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 /* 审批卡片 */
 .approval-card { background: #1a1a28; border: 1px solid #3a3a20; border-left: 3px solid #f59e0b; border-radius: 8px; padding: 14px 16px; margin-top: 8px; }
 .approval-card .a-title { font-size: 13px; font-weight: 600; color: #f59e0b; margin-bottom: 6px; }
+.approval-card .a-reasoning { font-size: 12px; color: #808098; margin-bottom: 6px; padding: 8px 10px; background: #12121a; border-radius: 6px; border-left: 2px solid #7c6aef; }
+.approval-card .a-reasoning::before { content: 'Agent 推理过程'; display: block; font-size: 10px; color: #7c6aef; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
 .approval-card .a-desc { font-size: 12px; color: #808098; margin-bottom: 10px; }
 .approval-card .a-actions { display: flex; gap: 8px; }
 .btn-approve { background: #166534; color: #4ade80; border: none; border-radius: 6px; padding: 6px 18px; font-size: 12px; cursor: pointer; font-weight: 600; }
 .btn-reject { background: #7f1d1d; color: #f87171; border: none; border-radius: 6px; padding: 6px 18px; font-size: 12px; cursor: pointer; font-weight: 600; }
+
+/* 沉淀操作区 */
+.precipitate-section { background: #1a1a10; border: 1px solid #3a3a20; border-radius: 10px; padding: 16px; margin-top: 16px; }
+.precipitate-section .ps-title { font-size: 13px; font-weight: 600; color: #fbbf24; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.precipitate-section .ps-desc { font-size: 12px; color: #6b6b80; margin-bottom: 10px; }
+.btn-save-workflow { background: #713f12; color: #fbbf24; border: none; border-radius: 8px; padding: 8px 20px; font-size: 13px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.btn-save-workflow:hover { background: #92400e; }
 
 /* === 底部Tab面板 === */
 .detail-tabs-area { border-top: 1px solid #1a1a28; flex-shrink: 0; }
@@ -188,7 +210,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 <!-- 顶栏 -->
 <div class="topbar" style="position:relative">
-  <div class="logo">◆ AgentFlow</div>
+  <div class="logo">◆ AI Agent 工作台</div>
   <nav>
     <a href="chat.html">Chat</a>
     <a href="tasks.html" class="active">Tasks</a>
@@ -237,16 +259,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     </div>
     <div class="notif-list">
       <div class="notif-item">
-        <div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">Bug修复流程 等待审批</span><span class="ni-time">2m ago</span></div>
-        <div class="ni-desc">npm test --grep "auth"</div>
+        <div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">修复登录页白屏 等待审批</span><span class="ni-time">2m ago</span></div>
+        <div class="ni-desc">Workflow · Step 2/3</div>
       </div>
       <div class="notif-item">
-        <div class="ni-top"><span class="ni-icon">✅</span><span class="ni-title">需求开发流程 已完成</span><span class="ni-time">10m ago</span></div>
-        <div class="ni-desc">新增用户注册接口</div>
+        <div class="ni-top"><span class="ni-icon">✅</span><span class="ni-title">新增用户注册功能 已完成</span><span class="ni-time">10m ago</span></div>
+        <div class="ni-desc">Workflow · 3 steps</div>
       </div>
       <div class="notif-item">
-        <div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">代码审查 等待审批</span><span class="ni-time">1h ago</span></div>
-        <div class="ni-desc">重构数据库连接层</div>
+        <div class="ni-top"><span class="ni-icon">⚡</span><span class="ni-title">重构数据库连接层 等待审批</span><span class="ni-time">1h ago</span></div>
+        <div class="ni-desc">Node Assembly · 2 nodes</div>
       </div>
     </div>
   </div>
@@ -275,14 +297,17 @@ document.addEventListener('click', function(e) {
     </div>
     <div class="task-list">
 
-      <!-- 运行中任务 -->
+      <!-- 运行中任务 - Workflow 匹配 -->
       <div class="task-card active">
         <div class="tc-top">
           <span class="tc-p-node tc-p-running" style="width:6px;height:6px"></span>
           <span class="tc-title">修复登录页面白屏</span>
           <span class="tc-time">2m ago</span>
         </div>
-        <div class="tc-flow"><span class="flow-icon">◈</span> Bug修复流程</div>
+        <div class="tc-flow">
+          <span class="tc-strategy tc-strategy-workflow">Workflow</span>
+          <span class="flow-icon">◈</span> Bug修复流程
+        </div>
         <div class="tc-progress">
           <span class="tc-p-node tc-p-done"></span><span class="tc-p-line"></span>
           <span class="tc-p-node tc-p-running"></span><span class="tc-p-line"></span>
@@ -291,14 +316,17 @@ document.addEventListener('click', function(e) {
         </div>
       </div>
 
-      <!-- 运行中 + 审批等待 -->
+      <!-- 运行中 + 审批等待 - Workflow 匹配 -->
       <div class="task-card has-approval">
         <div class="tc-top">
           <span class="tc-p-node tc-p-running" style="width:6px;height:6px"></span>
           <span class="tc-title">新增用户注册接口</span>
           <span class="tc-time">5m ago</span>
         </div>
-        <div class="tc-flow"><span class="flow-icon">◈</span> 需求开发流程</div>
+        <div class="tc-flow">
+          <span class="tc-strategy tc-strategy-workflow">Workflow</span>
+          <span class="flow-icon">◈</span> 需求开发流程
+        </div>
         <div class="tc-progress">
           <span class="tc-p-node tc-p-done"></span><span class="tc-p-line"></span>
           <span class="tc-p-node tc-p-approval"></span>
@@ -306,44 +334,54 @@ document.addEventListener('click', function(e) {
         </div>
       </div>
 
-      <!-- 审批等待 -->
+      <!-- 审批等待 - Node Assembly -->
       <div class="task-card has-approval">
         <div class="tc-top">
           <span class="tc-p-node tc-p-approval" style="width:6px;height:6px"></span>
           <span class="tc-title">重构数据库连接层</span>
           <span class="tc-time">10m ago</span>
         </div>
-        <div class="tc-flow"><span class="flow-icon">◈</span> 代码审查</div>
+        <div class="tc-flow">
+          <span class="tc-strategy tc-strategy-assembly">Node Assembly</span>
+          <span class="flow-icon">◈</span> 2 nodes assembled
+        </div>
         <div class="tc-progress">
-          <span class="tc-p-node tc-p-done"></span><span class="tc-p-line"></span>
           <span class="tc-p-node tc-p-done"></span><span class="tc-p-line"></span>
           <span class="tc-p-node tc-p-approval"></span>
           <span class="tc-p-label approval">⏸ awaiting</span>
         </div>
       </div>
 
-      <!-- 已完成 -->
-      <div class="task-card">
+      <!-- 已完成 - Workflow 匹配 -->
+      <div class="task-card done">
         <div class="tc-top">
           <span class="tc-p-node tc-p-done" style="width:6px;height:6px"></span>
           <span class="tc-title">新增用户注册功能</span>
           <span class="tc-time">1h ago</span>
         </div>
-        <div class="tc-flow"><span class="flow-icon">◈</span> 需求开发流程</div>
+        <div class="tc-flow">
+          <span class="tc-strategy tc-strategy-workflow">Workflow</span>
+          <span class="flow-icon">◈</span> 需求开发流程
+        </div>
         <div class="tc-progress">
           <span class="tc-p-node tc-p-done"></span><span class="tc-p-line"></span>
           <span class="tc-p-node tc-p-done"></span>
           <span class="tc-p-label done">✓ done</span>
         </div>
+        <button class="btn-precipitate" title="保存为工作流">★ Save as Workflow</button>
       </div>
 
-      <div class="task-card">
+      <!-- 已完成 - Workflow 匹配 -->
+      <div class="task-card done">
         <div class="tc-top">
           <span class="tc-p-node tc-p-done" style="width:6px;height:6px"></span>
           <span class="tc-title">修复分页查询性能</span>
           <span class="tc-time">昨天</span>
         </div>
-        <div class="tc-flow"><span class="flow-icon">◈</span> Bug修复流程</div>
+        <div class="tc-flow">
+          <span class="tc-strategy tc-strategy-workflow">Workflow</span>
+          <span class="flow-icon">◈</span> Bug修复流程
+        </div>
         <div class="tc-progress">
           <span class="tc-p-node tc-p-done"></span><span class="tc-p-line"></span>
           <span class="tc-p-node tc-p-done"></span><span class="tc-p-line"></span>
@@ -352,16 +390,21 @@ document.addEventListener('click', function(e) {
         </div>
       </div>
 
-      <div class="task-card">
+      <!-- 已完成 - Bare Agent（更强调沉淀入口） -->
+      <div class="task-card done">
         <div class="tc-top">
           <span class="tc-p-node tc-p-done" style="width:6px;height:6px"></span>
           <span class="tc-title">优化Redis缓存策略</span>
           <span class="tc-time">昨天</span>
         </div>
-        <div class="tc-flow"><span class="flow-icon">◈</span> 裸Agent执行</div>
+        <div class="tc-flow">
+          <span class="tc-strategy tc-strategy-bare">Bare Agent</span>
+          <span class="flow-icon">◈</span> 直接执行
+        </div>
         <div class="tc-progress">
           <span class="tc-p-label done">✓ done</span>
         </div>
+        <button class="btn-precipitate" title="保存为工作流">★ Save as Workflow</button>
       </div>
 
     </div>
@@ -382,9 +425,12 @@ document.addEventListener('click', function(e) {
         </div>
       </div>
       <div class="dh-meta">
-        <div class="dm-flow"><span class="flow-icon">◈</span><span class="flow-name">Bug修复流程</span></div>
+        <div class="dm-strategy">
+          <span class="strategy-icon">◈</span>
+          <span class="strategy-name" style="color:#4ade80">Workflow: Bug修复流程</span>
+        </div>
         <span>Started 2m ago</span>
-        <span>From: <a href="chat.html" style="color:#7c6aef;text-decoration:none">Chat对话</a></span>
+        <div class="dm-source">From: <a href="chat.html">Chat</a></div>
       </div>
       <!-- DAG迷你总览 -->
       <div class="dag-overview">
@@ -417,7 +463,7 @@ document.addEventListener('click', function(e) {
         </div>
       </div>
 
-      <!-- Step 2: Running + Approval (展开) -->
+      <!-- Step 2: Running + Approval (展开，含推理过程) -->
       <div class="step-section">
         <div class="step-block" style="border-color:#164e63">
           <div class="step-block-header" onclick="this.querySelector('.sb-chevron').classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
@@ -433,6 +479,7 @@ document.addEventListener('click', function(e) {
             <div style="color:#4a4a60;margin-top:6px">等待用户审批:</div>
             <div class="approval-card">
               <div class="a-title">⚡ Agent 请求执行命令</div>
+              <div class="a-reasoning">已定位到 auth/handler.ts 第47行的空指针问题，添加可选链操作符后需要运行单元测试验证修复正确性。测试范围仅限 auth 模块，风险较低。</div>
               <div class="a-desc">npm test -- --grep "auth"<br><span style="color:#4a4a60">风险评估: 低 · 单元测试运行</span></div>
               <div class="a-actions">
                 <button class="btn-approve">✓ Approve</button>
@@ -500,26 +547,27 @@ document.addEventListener('click', function(e) {
 
 </div>
 
-<!-- 新建任务模态框 -->
+<!-- 新建任务模态框（纯自然语言，无Workflow下拉） -->
 <div id="newTaskModal" style="display:none;position:fixed;inset:0;background:#00000088;z-index:100;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
   <div style="width:480px;background:#12121a;border:1px solid #1e1e2e;border-radius:16px;padding:24px">
-    <h3 style="font-size:16px;font-weight:600;color:#e0e0e6;margin-bottom:16px">New Task</h3>
-    <div style="margin-bottom:12px">
-      <label style="display:block;font-size:11px;font-weight:600;color:#6b6b80;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Description</label>
-      <textarea style="width:100%;background:#0e0e16;border:1px solid #1e1e2e;border-radius:8px;padding:10px 12px;color:#e0e0e6;font-size:14px;outline:none;resize:vertical;min-height:80px;font-family:inherit" placeholder="Describe what you want to accomplish..."></textarea>
-    </div>
+    <h3 style="font-size:16px;font-weight:600;color:#e0e0e6;margin-bottom:6px">New Task</h3>
+    <p style="font-size:12px;color:#6b6b80;margin-bottom:16px">描述你的任务，系统将自动匹配最佳执行策略</p>
     <div style="margin-bottom:16px">
-      <label style="display:block;font-size:11px;font-weight:600;color:#6b6b80;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Workflow (optional)</label>
-      <select style="width:100%;background:#0e0e16;border:1px solid #1e1e2e;border-radius:8px;padding:8px 12px;color:#e0e0e6;font-size:13px;outline:none">
-        <option>Auto-match</option>
-        <option>Bug修复流程</option>
-        <option>需求开发流程</option>
-        <option>Bare Agent (no workflow)</option>
-      </select>
+      <label style="display:block;font-size:11px;font-weight:600;color:#6b6b80;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Task Description</label>
+      <textarea style="width:100%;background:#0e0e16;border:1px solid #1e1e2e;border-radius:8px;padding:10px 12px;color:#e0e0e6;font-size:14px;outline:none;resize:vertical;min-height:100px;font-family:inherit" placeholder="例如：修复登录页白屏问题...&#10;&#10;系统将自动匹配工作流或组装节点执行，仅在必要时打断你确认"></textarea>
+    </div>
+    <!-- 执行策略图例 -->
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:16px;padding:8px 12px;background:#0e0e16;border-radius:8px">
+      <span style="font-size:11px;color:#4a4a60;margin-right:4px">匹配策略:</span>
+      <span style="font-size:10px;padding:2px 7px;border-radius:4px;background:#14532d;color:#4ade80;font-weight:600">Workflow 优先</span>
+      <span style="color:#2a2a3e;font-size:12px">→</span>
+      <span style="font-size:10px;padding:2px 7px;border-radius:4px;background:#164e63;color:#22d3ee;font-weight:600">Node 组装</span>
+      <span style="color:#2a2a3e;font-size:12px">→</span>
+      <span style="font-size:10px;padding:2px 7px;border-radius:4px;background:#334155;color:#94a3b8;font-weight:600">Bare Agent</span>
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button style="background:#1e1e2e;color:#9090a8;border:1px solid #2a2a3e;border-radius:8px;padding:8px 16px;font-size:12px;cursor:pointer" onclick="document.getElementById('newTaskModal').style.display='none'">Cancel</button>
-      <button style="background:#7c6aef;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:12px;cursor:pointer;font-weight:600">Create Task</button>
+      <button style="background:#7c6aef;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:12px;cursor:pointer;font-weight:600" onclick="document.getElementById('newTaskModal').style.display='none'">▶ 确认执行</button>
     </div>
   </div>
 </div>
