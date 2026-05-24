@@ -21,6 +21,18 @@ STORE_FILE = os.path.join(DATA_DIR, "store.json")
 # === CodeBuddy 配置 ===
 CODEBUDDY_PATH = os.getenv("CODEBUDDY_PATH", "cbc")
 
+# === 节点默认配置 ===
+DEFAULT_ALLOWED_TOOLS = os.getenv("DEFAULT_ALLOWED_TOOLS", "Bash,Read,Write,Glob,Grep")
+
+# === 审批配置 ===
+APPROVAL_TIMEOUT_SECONDS = float(os.getenv("APPROVAL_TIMEOUT_SECONDS", "600"))  # 默认10分钟
+
+# === 安全配置 ===
+RISKY_COMMANDS = os.getenv(
+    "RISKY_COMMANDS",
+    "rm ,rmdir,del ,format,mkfs,dd ,> /dev/",
+).split(",")
+
 # === 服务配置 ===
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))

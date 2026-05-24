@@ -523,10 +523,10 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
 
     def _is_risky_tool(self, tool_name: str, tool_input: dict) -> bool:
         """判断是否为高风险工具调用"""
-        risky_commands = ["rm ", "rmdir", "del ", "format", "mkfs", "dd ", "> /dev/"]
+        from server.config import RISKY_COMMANDS
         if tool_name == "Bash":
             cmd = str(tool_input.get("command", ""))
-            return any(r in cmd for r in risky_commands)
+            return any(r in cmd for r in RISKY_COMMANDS)
         return False
 
 

@@ -1,4 +1,4 @@
-"""任务执行器 — DAG 引擎 + CodeBuddy Adapter 串联"""
+"""任务执行器 — DAG 引擎 + Adapter 串联"""
 
 import asyncio
 import json
@@ -16,8 +16,8 @@ from server.services.store import store
 from server.services.snapshot_service import init_git_repo, create_snapshot
 from server.services.approval import create_approval, resolve_approval
 from server.services.registry import get_launcher_skill_content
-from server.config import WORKSPACE_DIR
-from server.adapters.codebuddy import codebuddy_adapter
+from server.config import WORKSPACE_DIR, APPROVAL_TIMEOUT_SECONDS
+from server.adapters.registry import get_adapter
 from server.adapters.events import (
     AgentThinkingEvent, ApprovalNeededEvent,
     ProgressUpdateEvent, ExecutionCompletedEvent,
@@ -89,7 +89,15 @@ async def cancel_task(task_id: str) -> Task:
 
     # 终止正在运行的 adapter session
     if task.context.adapter_session_id:
-        await codebuddy_adapter.terminate(task.context.adapter_session_id)
+        # 尝试获取当前任务的 adapter 类型（从第一个节点的定义推断）
+        # 简化处理：遍历所有已注册 adapter 尝试 terminate
+        from server.adapters.registry import list_adapters
+        for atype in list_adapters():
+            a = get_adapter(atype)
+            try:
+                await a.terminate(task.context.adapter_session_id)
+            except Exception:
+                pass
         task.context.adapter_session_id = None
 
     store.save()
@@ -352,11 +360,18 @@ async def _install_pip_requirements(node_def, workspace_dir: str):
 async def _execute_node_via_adapter(task: Task, node: NodeInstance,
                                      step: TaskStep | None, input_data: dict,
                                      need_workflow_approval: bool = False) -> dict:
-    """通过 CodeBuddy Adapter 执行单个节点"""
+    """通过 Adapter 执行单个节点（按 adapter_type 路由到对应实现）"""
     # 获取节点定义
     node_def = store.nodes.get(node.definition_id)
     if not node_def:
         raise ValueError(f"节点定义不存在: {node.definition_id}")
+
+    # 按 adapter_type 获取对应的 Adapter 实现
+    adapter_type = node_def.adapter_type
+    adapter = get_adapter(adapter_type)
+    if not adapter:
+        from server.adapters.registry import list_adapters
+        raise ValueError(f"未注册的 adapter_type: {adapter_type}，可用: {list(list_adapters().keys())}")
 
     # 合并配置：定义默认配置 + 节点实例配置
     config = {**node_def.default_config, **node.config}
@@ -406,10 +421,10 @@ async def _execute_node_via_adapter(task: Task, node: NodeInstance,
             "If the skill requires user choices and you are in automated mode, use default/recommended options."
         )
 
-    # 启动 CodeBuddy 会话
-    logger.info(f"[Adapter] Starting session for node={node.id}, workspace={workspace_dir}")
+    # 启动 Adapter 会话
+    logger.info(f"[Adapter] Starting session for node={node.id}, adapter={adapter_type}, workspace={workspace_dir}")
     try:
-        session_id = await codebuddy_adapter.start_session(adapter_config)
+        session_id = await adapter.start_session(adapter_config)
     except Exception as e:
         import traceback
         logger.error(f"[Adapter] start_session FAILED: {type(e).__name__}: {e}\n{traceback.format_exc()}")
@@ -424,7 +439,7 @@ async def _execute_node_via_adapter(task: Task, node: NodeInstance,
     thinking_texts = []  # 累积思考内容
 
     try:
-        async for event in codebuddy_adapter.on_event(session_id):
+        async for event in adapter.on_event(session_id):
             if isinstance(event, AgentThinkingEvent):
                 thinking_texts.append(event.content)
                 await event_bus.emit("node:thinking", {
@@ -512,9 +527,11 @@ async def _execute_node_via_adapter(task: Task, node: NodeInstance,
     return final_output
 
 
-async def _wait_for_approval(approval_id: str, task_id: str, timeout: float = 600) -> dict | None:
-    """等待审批结果（轮询方式，超时10分钟自动批准）"""
+async def _wait_for_approval(approval_id: str, task_id: str, timeout: float | None = None) -> dict | None:
+    """等待审批结果（轮询方式，超时自动批准）"""
     import time
+    if timeout is None:
+        timeout = APPROVAL_TIMEOUT_SECONDS
     start = time.time()
     while time.time() - start < timeout:
         approval = store.approvals.get(approval_id)

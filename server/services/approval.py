@@ -3,7 +3,7 @@
 from datetime import datetime
 from server.models.schemas import Approval, ApprovalSource, Task, TaskStep, StepState
 from server.services.store import store
-from server.adapters.codebuddy import codebuddy_adapter
+from server.adapters.registry import get_adapter, list_adapters
 from server.core.events import event_bus
 
 
@@ -63,18 +63,22 @@ async def resolve_approval(approval_id: str, approved: bool, result_data: dict |
     approval.resolved_at = datetime.now().isoformat()
     store.save()
 
-    # 如果是 agent 来源的审批，通知 Adapter
+    # 如果是 agent 来源的审批，通知对应的 Adapter
     if approval.source == ApprovalSource.AGENT:
         task = store.tasks.get(approval.task_id)
         if task and task.context.adapter_session_id:
-            try:
-                await codebuddy_adapter.respond(
-                    task.context.adapter_session_id,
-                    approval_id,
-                    {"approved": approved},
-                )
-            except Exception:
-                pass  # Adapter 可能已结束
+            # 尝试所有已注册 adapter，找到能响应该 session 的那个
+            for atype in list_adapters():
+                a = get_adapter(atype)
+                try:
+                    await a.respond(
+                        task.context.adapter_session_id,
+                        approval_id,
+                        {"approved": approved},
+                    )
+                    break  # 成功则不再尝试
+                except Exception:
+                    pass  # 该 adapter 不持有此 session，继续尝试
 
     await event_bus.emit("approval:resolved", {
         "approval_id": approval_id,

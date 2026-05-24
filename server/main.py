@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from server.config import DATA_DIR, WEB_DIR, WORKSPACE_DIR, CODEBUDDY_PATH, EXTENSION_DIR
 from server.services.store import store
 from server.services.registry import scan_extensions
+from server.adapters.registry import init_adapters
 from server.api.workflows import router as workflows_router
 from server.api.nodes import router as nodes_router
 from server.api.dag import router as dag_router
@@ -52,6 +53,8 @@ app.include_router(diag_router)
 async def startup():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(WORKSPACE_DIR, exist_ok=True)
+    # 初始化 Adapter 注册表
+    init_adapters()
     # 扫描 extention/ 目录，加载节点定义
     extension_nodes = scan_extensions(EXTENSION_DIR)
     store.load(extension_nodes=extension_nodes)

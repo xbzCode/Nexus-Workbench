@@ -104,7 +104,7 @@ async def api_diag_run_test():
 
 @router.get("/diag/setup-write-wf", response_class=PlainTextResponse)
 async def api_diag_setup_write_wf():
-    """诊断：创建写文件工作流（code-generation → code-review），返回 workflow_id"""
+    """诊断：用 extention/ 中已有的 2 个节点组装线性工作流，返回 workflow_id"""
     from server.models.schemas import Workflow, NodeInstance, EdgeDef, DAGDefinition
 
     # 检查是否已存在
@@ -112,22 +112,30 @@ async def api_diag_setup_write_wf():
         if wf.name == "file-write-wf":
             return f"Already exists: {wf.id}"
 
+    # 动态查找任意 2 个可用节点
+    available_defs = list(store.nodes.values())
+    if len(available_defs) < 2:
+        available = [f"{nd.id}: {nd.name}" for nd in available_defs]
+        return f"Need at least 2 node definitions, got {len(available_defs)}!\nAvailable: {available}"
+
+    first_def = available_defs[0]
+    second_def = available_defs[1]
+
     wf = Workflow(
         name="file-write-wf",
-        description="写文件并审查",
-        category="development",
+        description=f"线性工作流: {first_def.display_name or first_def.name} → {second_def.display_name or second_def.name}",
+        category=first_def.category or "extension",
         dag=DAGDefinition(
             nodes=[
                 NodeInstance(
                     id="n1",
-                    definition_id="node_def_code_generation",
+                    definition_id=first_def.id,
                     position={"x": 100, "y": 200},
                 ),
                 NodeInstance(
                     id="n2",
-                    definition_id="node_def_code_review",
+                    definition_id=second_def.id,
                     position={"x": 400, "y": 200},
-                    config={"need_approval": True},
                 ),
             ],
             edges=[
@@ -138,7 +146,7 @@ async def api_diag_setup_write_wf():
     )
     store.workflows[wf.id] = wf
     store.save()
-    return f"Created workflow: {wf.id} (file-write-wf)"
+    return f"Created workflow: {wf.id} (file-write-wf) with nodes: {first_def.name} → {second_def.name}"
 
 
 @router.get("/diag/run-write-task", response_class=PlainTextResponse)
@@ -278,22 +286,34 @@ async def api_diag_test_rollback(task_id: str):
 
 @router.get("/diag/test-breakpoint")
 async def api_diag_test_breakpoint():
-    """诊断：测试断点调试 — 创建任务→设断点→启动→命中→继续→完成（流式输出）"""
+    """诊断：测试断点调试 — 用第一个可用工作流创建任务→设断点→启动→命中→继续→完成（流式输出）"""
     import os
     from server.services.approval import list_pending_approvals, resolve_approval
 
     async def _stream():
-        # 找test_wf（echo节点，执行快）
+        # 动态查找第一个可用工作流
         wf_id = None
+        target_node_id = None
         for wf in store.workflows.values():
-            if wf.name == "test_wf":
+            # 优先找有两个以上节点的工作流（方便测断点）
+            if len(wf.dag.nodes) >= 2:
                 wf_id = wf.id
+                # 用第二个节点作为断点目标
+                target_node_id = wf.dag.nodes[1].id
                 break
         if not wf_id:
-            yield "test_wf not found!\n"
+            # 退而求其次，找任意工作流
+            for wf in store.workflows.values():
+                if wf.dag.nodes:
+                    wf_id = wf.id
+                    target_node_id = wf.dag.nodes[-1].id
+                    break
+        if not wf_id:
+            yield "No workflow with nodes available for breakpoint test!\n"
             return
 
-        yield f"Using workflow: {wf_id} (test_wf)\n"
+        wf = store.workflows[wf_id]
+        yield f"Using workflow: {wf_id} ({wf.name})\n"
 
         # 1. 创建任务
         task = await create_task(
@@ -305,10 +325,10 @@ async def api_diag_test_breakpoint():
         logger.info(f"[test-breakpoint] Task created: {task.id}")
         yield f"Task created: {task.id}\n"
 
-        # 2. 在n2设置断点
-        task.context.breakpoints.append("n2")
+        # 2. 在目标节点设置断点
+        task.context.breakpoints.append(target_node_id)
         store.save()
-        yield f"Breakpoint set on n2: {task.context.breakpoints}\n"
+        yield f"Breakpoint set on {target_node_id}: {task.context.breakpoints}\n"
 
         # 3. 启动任务
         result = await start_task(task.id)
@@ -328,8 +348,10 @@ async def api_diag_test_breakpoint():
                 yield f"Breakpoint HIT! Approval found: {pending[0].id[:8]}\n"
                 yield f"  Approval title: {pending[0].title}\n"
                 yield f"  Task status: {t.status}\n"
-                yield f"  n1 status: {t.context.step_states.get('n1', 'N/A')}\n"
-                yield f"  n2 status: {t.context.step_states.get('n2', 'N/A')}\n"
+                # 动态输出所有节点状态
+                for node in wf.dag.nodes:
+                    state = t.context.step_states.get(node.id, 'N/A')
+                    yield f"  {node.id} status: {state}\n"
                 breakpoint_hit = True
                 break
             if t.status in ("completed", "failed", "cancelled"):
@@ -369,8 +391,9 @@ async def api_diag_test_breakpoint():
         t = store.tasks.get(task.id)
         if t.status == "completed":
             yield "SUCCESS: Breakpoint debug flow works!\n"
-            yield f"  n1 completed: {t.context.step_states.get('n1') == 'completed'}\n"
-            yield f"  n2 completed: {t.context.step_states.get('n2') == 'completed'}\n"
+            for node in wf.dag.nodes:
+                is_completed = t.context.step_states.get(node.id) == 'completed'
+                yield f"  {node.id} completed: {is_completed}\n"
         else:
             yield f"ISSUE: Task ended with status {t.status}\n"
 

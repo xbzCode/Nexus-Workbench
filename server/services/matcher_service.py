@@ -129,45 +129,63 @@ async def _llm_match(user_input: str, workflows: list[dict]) -> dict:
 
 
 def _rule_match(user_input: str, workflows: list[dict]) -> dict:
-    """规则匹配（降级方案）：关键词匹配"""
-    keywords_map = {
-        "开发": ["development", "code_generation"],
-        "生成": ["development", "code_generation"],
-        "修复": ["fix", "bug_fix"],
-        "bug": ["fix", "bug_fix"],
-        "审查": ["review", "code_review"],
-        "review": ["review", "code_review"],
-    }
+    """规则匹配（降级方案）：基于工作流的 name/description/category 动态匹配
+
+    不再硬编码关键词映射，而是将用户输入与工作流元数据做 token 级匹配。
+    同时从工作流引用的节点定义中提取语义信息辅助匹配。
+    """
+    import re
 
     input_lower = user_input.lower()
+    # 从用户输入中提取 token（按非字母数字分割）
+    input_tokens = set(re.split(r'[^a-zA-Z0-9\u4e00-\u9fff]+', input_lower)) - {""}
+
     best_wf = None
     best_score = 0
 
     for wf in workflows:
         score = 0
-        # 工作流名称匹配
-        if wf["name"].lower() in input_lower:
+        wf_name = wf.get("name", "").lower()
+        wf_desc = wf.get("description", "").lower()
+        wf_cat = wf.get("category", "").lower()
+
+        # 1. 精确匹配：工作流名称出现在用户输入中
+        if wf_name and wf_name in input_lower:
             score += 3
-        # 描述匹配
-        if wf["description"].lower() in input_lower:
-            score += 2
-        # 节点类型匹配
-        for keyword, categories in keywords_map.items():
-            if keyword in input_lower:
-                for node_id in wf.get("nodes", []):
-                    if any(cat in node_id for cat in categories):
-                        score += 1
+
+        # 2. 描述 token 匹配：用户输入的 token 在描述中出现
+        desc_tokens = set(re.split(r'[^a-zA-Z0-9\u4e00-\u9fff]+', wf_desc)) - {""}
+        overlap = input_tokens & desc_tokens
+        score += len(overlap) * 2
+
+        # 3. Category 匹配
+        cat_tokens = set(re.split(r'[^a-zA-Z0-9\u4e00-\u9fff]+', wf_cat)) - {""}
+        cat_overlap = input_tokens & cat_tokens
+        score += len(cat_overlap)
+
+        # 4. 节点定义语义辅助：从节点定义的 name/category 中提取匹配信号
+        for node_def_id in wf.get("nodes", []):
+            node_def = store.nodes.get(node_def_id)
+            if node_def:
+                nd_name = node_def.name.lower()
+                nd_cat = node_def.category.lower()
+                # 节点名称 token 匹配
+                nd_tokens = set(re.split(r'[^a-zA-Z0-9\u4e00-\u9fff]+', nd_name)) - {""}
+                score += len(input_tokens & nd_tokens)
+                # 节点 category 匹配
+                nd_cat_tokens = set(re.split(r'[^a-zA-Z0-9\u4e00-\u9fff]+', nd_cat)) - {""}
+                score += len(input_tokens & nd_cat_tokens) * 0.5
 
         if score > best_score:
             best_score = score
             best_wf = wf
 
-    if best_wf:
+    if best_wf and best_score > 0:
         return {
             "intent": user_input,
             "matched_workflow_id": best_wf["id"],
             "matched_workflow_name": best_wf["name"],
-            "confidence": min(best_score / 5, 1.0),
+            "confidence": min(best_score / 6, 1.0),
             "reasoning": f"规则匹配 (score={best_score})",
         }
 

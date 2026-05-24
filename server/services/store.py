@@ -9,82 +9,6 @@ from server.models.schemas import (
 )
 
 
-# 预置工作流
-BUILTIN_WORKFLOWS: list[dict] = [
-    {
-        "id": "wf_bug_fix",
-        "name": "Bug修复流程",
-        "description": "分析Bug → 修复代码 → 验证结果，适用于已知Bug的修复场景",
-        "category": "fix",
-        "status": "published",
-        "dag": {
-            "nodes": [
-                {
-                    "id": "bug_analyze",
-                    "definition_id": "node_def_bug_fix",
-                    "position": {"x": 100, "y": 100},
-                    "config": {},
-                    "hooks": [],
-                },
-                {
-                    "id": "bug_fix_code",
-                    "definition_id": "node_def_code_generation",
-                    "position": {"x": 100, "y": 260},
-                    "config": {
-                        "prompt_template": "根据上级节点的分析结果，修复工作目录 {workspace} 中的Bug。上级输出: {previous_output}\n请直接修改代码并验证修复结果。",
-                    },
-                    "hooks": [],
-                },
-                {
-                    "id": "bug_review",
-                    "definition_id": "node_def_code_review",
-                    "position": {"x": 100, "y": 420},
-                    "config": {
-                        "need_approval": True,
-                        "prompt_template": "请审查工作目录 {workspace} 中刚修复的代码。上级输出: {previous_output}\n重点审查: 修复是否正确、是否引入新问题、代码质量。",
-                    },
-                    "hooks": [],
-                },
-            ],
-            "edges": [
-                {"source_id": "bug_analyze", "target_id": "bug_fix_code", "condition": None, "data_mapping": None},
-                {"source_id": "bug_fix_code", "target_id": "bug_review", "condition": None, "data_mapping": None},
-            ],
-        },
-    },
-    {
-        "id": "wf_feature_dev",
-        "name": "需求开发流程",
-        "description": "代码生成 → 代码审查，适用于新功能开发场景",
-        "category": "development",
-        "status": "published",
-        "dag": {
-            "nodes": [
-                {
-                    "id": "dev_gen",
-                    "definition_id": "node_def_code_generation",
-                    "position": {"x": 100, "y": 100},
-                    "config": {},
-                    "hooks": [],
-                },
-                {
-                    "id": "dev_review",
-                    "definition_id": "node_def_code_review",
-                    "position": {"x": 100, "y": 260},
-                    "config": {
-                        "need_approval": True,
-                    },
-                    "hooks": [],
-                },
-            ],
-            "edges": [
-                {"source_id": "dev_gen", "target_id": "dev_review", "condition": None, "data_mapping": None},
-            ],
-        },
-    },
-]
-
-
 class Store:
     """内存缓存 + JSON 文件持久化"""
 
@@ -121,11 +45,6 @@ class Store:
         if extension_nodes:
             for nid, nd in extension_nodes.items():
                 self.nodes[nid] = nd
-
-        # 预置工作流：确保内置工作流存在
-        for wf_data in BUILTIN_WORKFLOWS:
-            if wf_data["id"] not in self.workflows:
-                self.workflows[wf_data["id"]] = Workflow(**wf_data)
 
         self.save()
 

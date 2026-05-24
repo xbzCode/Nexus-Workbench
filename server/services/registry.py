@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Optional
 
-from server.config import EXTENSION_DIR
+from server.config import EXTENSION_DIR, DEFAULT_ALLOWED_TOOLS
 from server.models.schemas import NodeDefinition, NodeResources, NodeSetup
 
 logger = logging.getLogger(__name__)
@@ -149,7 +149,7 @@ def _auto_register_skill(source_dir: str, dir_name: str) -> Optional[NodeDefinit
         adapter_type="codebuddy",
         default_config={
             "prompt_template": "{input}",
-            "allowed_tools": "Bash,Read,Write,Glob,Grep",
+            "allowed_tools": DEFAULT_ALLOWED_TOOLS,
         },
         resources=NodeResources(
             skill_entry="SKILL.md",
