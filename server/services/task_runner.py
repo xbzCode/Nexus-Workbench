@@ -8,6 +8,56 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+
+# ============================================================
+# 节点执行日志 — 写入 workspace/.agentflow/ 目录
+# ============================================================
+
+def _write_node_log(workspace_dir: str, task_id: str, node_id: str,
+                    phase: str, data: dict):
+    """将节点执行日志写入 workspace/.agentflow/node-execution.log
+
+    Args:
+        workspace_dir: 任务工作目录
+        task_id: 任务ID
+        node_id: 节点实例ID
+        phase: 阶段（input / output / question / approval / error）
+        data: 日志数据
+    """
+    try:
+        log_dir = os.path.join(workspace_dir, ".agentflow")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "node-execution.log")
+
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "task_id": task_id,
+            "node_id": node_id,
+            "phase": phase,
+        }
+        entry.update(data)
+
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    except Exception as e:
+        logger.warning(f"Failed to write node log: {e}")
+
+
+def _write_node_detail(workspace_dir: str, node_id: str, phase: str, data: dict):
+    """将节点输入/输出详情写入独立文件，方便查看完整内容
+
+    文件路径：workspace/.agentflow/nodes/{node_id}_{phase}.json
+    """
+    try:
+        detail_dir = os.path.join(workspace_dir, ".agentflow", "nodes")
+        os.makedirs(detail_dir, exist_ok=True)
+        detail_path = os.path.join(detail_dir, f"{node_id}_{phase}.json")
+
+        with open(detail_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+    except Exception as e:
+        logger.warning(f"Failed to write node detail: {e}")
+
 from server.models.schemas import (
     Task, TaskStep, StepState, TaskStatus, ExecutionContext,
     Workflow, NodeInstance, Approval, ApprovalSource,
@@ -222,6 +272,19 @@ async def _run_dag(task_id: str):
                 # 计算输入
                 node_input = _compute_input(node_id, edges_to, all_outputs, task.input_data, dag)
 
+                # === 记录数据传递日志 ===
+                _ws_dir = task.context.variables.get("workspace", os.path.join(WORKSPACE_DIR, task_id))
+                _write_node_log(_ws_dir, task_id, node_id, "data_flow", {
+                    "phase": "compute_input",
+                    "incoming_edges": [
+                        {"source_id": e.source_id, "target_id": e.target_id,
+                         "condition": e.condition, "data_mapping": e.data_mapping}
+                        for e in edges_to.get(node_id, [])
+                    ],
+                    "input_keys": list(node_input.keys()) if isinstance(node_input, dict) else str(type(node_input)),
+                    "input_preview": str(node_input)[:500] if isinstance(node_input, dict) else str(node_input)[:500],
+                })
+
                 # Pre-step 快照
                 if step:
                     try:
@@ -255,6 +318,17 @@ async def _run_dag(task_id: str):
                     task.context.step_states[node_id] = StepState.FAILED
                     task.status = TaskStatus.FAILED
                     store.save()
+                    # === 记录节点失败日志 ===
+                    workspace_dir = task.context.variables.get("workspace", os.path.join(WORKSPACE_DIR, task_id))
+                    _write_node_log(workspace_dir, task_id, node_id, "error", {
+                        "error": error_msg,
+                        "traceback": tb[:2000],
+                    })
+                    _write_node_detail(workspace_dir, node_id, "error", {
+                        "error": error_msg,
+                        "traceback": tb,
+                        "node_input": node_input,
+                    })
                     logger.error(f"Node {node_id} failed: {error_msg}", exc_info=True)
                     await event_bus.emit("task:failed", {"task_id": task_id, "error": error_msg})
                     return
@@ -272,6 +346,15 @@ async def _run_dag(task_id: str):
         task.output_data = all_outputs
         store.save()
         await event_bus.emit("task:completed", {"task_id": task_id})
+
+        # === 记录 DAG 执行完成汇总 ===
+        _ws_dir = task.context.variables.get("workspace", os.path.join(WORKSPACE_DIR, task_id))
+        _write_node_log(_ws_dir, task_id, "dag", "completed", {
+            "total_nodes": len(dag.nodes),
+            "total_edges": len(dag.edges),
+            "all_outputs_keys": {nid: list(out.keys()) if isinstance(out, dict) else str(type(out))
+                                 for nid, out in all_outputs.items()},
+        })
 
     except Exception as e:
         import traceback
@@ -399,6 +482,23 @@ async def _execute_node_via_adapter(task: Task, node: NodeInstance,
     # 获取任务的工作目录
     workspace_dir = task.context.variables.get("workspace", os.path.join(WORKSPACE_DIR, task.id))
 
+    # === 记录节点输入日志 ===
+    _write_node_log(workspace_dir, task.id, node.id, "input", {
+        "node_name": node_def.name,
+        "definition_id": node.definition_id,
+        "adapter_type": adapter_type,
+        "input_data": input_data,
+        "prompt_template": config.get("prompt_template", "{input}"),
+    })
+    _write_node_detail(workspace_dir, node.id, "input", {
+        "node_name": node_def.name,
+        "definition_id": node.definition_id,
+        "adapter_type": adapter_type,
+        "input_data": input_data,
+        "prompt_template": config.get("prompt_template", "{input}"),
+        "config": config,
+    })
+
     # 安装 pip 依赖（如果有）
     await _install_pip_requirements(node_def, workspace_dir)
 
@@ -486,6 +586,12 @@ async def _execute_node_via_adapter(task: Task, node: NodeInstance,
                 approval_count += 1
                 question_text = event.question[:500]
                 logger.info(f"[TaskRunner] Agent question detected: {question_text[:100]}")
+                # === 记录 Agent 提问日志 ===
+                _write_node_log(workspace_dir, task.id, node.id, "question", {
+                    "question": question_text,
+                    "options": event.options or [],
+                    "approval_count": approval_count,
+                })
                 await event_bus.emit("node:question", {
                     "task_id": task.id, "node_id": node.id, "question": question_text,
                 })
@@ -517,11 +623,21 @@ async def _execute_node_via_adapter(task: Task, node: NodeInstance,
                     user_answer = "请继续执行"
                 
                 logger.info(f"[TaskRunner] Resuming with user answer: {user_answer[:100]}")
+                # === 记录用户回答日志 ===
+                _write_node_log(workspace_dir, task.id, node.id, "answer", {
+                    "user_answer": user_answer,
+                    "approval_count": approval_count,
+                })
                 await adapter.resume_session(session_id, user_answer)
                 # resume 后 on_event 会自动切换到新 queue 继续读取
             elif isinstance(event, ApprovalNeededEvent):
                 # 高风险操作审批 — 暂停，等用户确认
                 approval_count += 1
+                # === 记录审批请求日志 ===
+                _write_node_log(workspace_dir, task.id, node.id, "approval_request", {
+                    "description": event.approval.get("description", ""),
+                    "approval_count": approval_count,
+                })
                 approval = await create_approval(
                     task_id=task.id,
                     step_id=step.id if step else "",
@@ -541,6 +657,12 @@ async def _execute_node_via_adapter(task: Task, node: NodeInstance,
                 # 等待用户处理审批
                 result = await _wait_for_approval(approval.id, task.id)
                 approved = result and result.get("approved", True)
+                # === 记录审批结果日志 ===
+                _write_node_log(workspace_dir, task.id, node.id, "approval_result", {
+                    "approved": approved,
+                    "result": result,
+                    "approval_count": approval_count,
+                })
                 if approved:
                     # 用户批准 — resume 会话继续执行
                     await adapter.resume_session(session_id, "用户已确认，请继续执行")
@@ -591,6 +713,25 @@ async def _execute_node_via_adapter(task: Task, node: NodeInstance,
         final_output["result"] = output["result"]
     if output.get("cost_usd"):
         final_output["cost_usd"] = output["cost_usd"]
+
+    # === 记录节点输出日志 ===
+    _write_node_log(workspace_dir, task.id, node.id, "output", {
+        "node_name": node_def.name,
+        "status": "completed",
+        "summary": summary[:500],
+        "approval_count": approval_count,
+        "result_length": len(result_text),
+        "thinking_length": len(result_thinking),
+    })
+    _write_node_detail(workspace_dir, node.id, "output", {
+        "node_name": node_def.name,
+        "status": "completed",
+        "final_output": final_output,
+        "raw_output": output,
+        "approval_count": approval_count,
+        "progress_texts_count": len(progress_texts),
+        "thinking_texts_count": len(thinking_texts),
+    })
     # 更新步骤
     if step:
         step.status = StepState.COMPLETED

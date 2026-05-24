@@ -36,16 +36,29 @@ def topological_sort(dag: DAGDefinition) -> list[list[str]]:
 
 
 def evaluate_condition(condition: str | None, output_data: dict) -> bool:
-    """条件边求值。condition 为 None 表示无条件通过。"""
+    """条件边求值。condition 为 None 表示无条件通过。
+    
+    支持属性访问语法：output.status == 'completed'
+    内部将 output_data 包装为 DotDict 以支持 dict.key 语法。
+    """
     if condition is None:
         return True
 
     # 简单沙箱 eval：只暴露 output 变量
     try:
-        result = eval(condition, {"__builtins__": {}}, {"output": output_data})
+        result = eval(condition, {"__builtins__": {}}, {"output": DotDict(output_data)})
         return bool(result)
     except Exception:
         return False
+
+
+class DotDict(dict):
+    """支持属性访问的 dict，用于 eval 条件表达式中 output.key 语法"""
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{key}'")
 
 
 def resolve_data_mapping(

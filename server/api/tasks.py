@@ -1,6 +1,7 @@
 """任务 API — 创建/启动/取消/查询任务"""
 
 import asyncio
+import json
 import logging
 import os
 import traceback
@@ -529,6 +530,73 @@ async def api_respond_approval(task_id: str, approval_id: str, req: RespondAppro
 # ============================================================
 # 任务产出文件
 # ============================================================
+
+
+@router.get("/{task_id}/logs")
+async def api_get_task_logs(task_id: str, node_id: str = "", phase: str = ""):
+    """获取任务 workspace 中的执行日志
+
+    Query 参数:
+    - node_id: 过滤指定节点（可选）
+    - phase: 过滤指定阶段 input/output/question/answer/error（可选）
+    """
+    task = store.tasks.get(task_id)
+    if not task:
+        raise HTTPException(404, "任务不存在")
+
+    workspace = task.context.variables.get("workspace", "")
+    log_path = os.path.join(workspace, ".agentflow", "node-execution.log")
+    if not os.path.isfile(log_path):
+        return {"logs": [], "workspace": workspace, "log_file": log_path}
+
+    entries = []
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                # 过滤
+                if node_id and entry.get("node_id") != node_id:
+                    continue
+                if phase and entry.get("phase") != phase:
+                    continue
+                entries.append(entry)
+    except Exception as e:
+        raise HTTPException(500, f"读取日志失败: {e}")
+
+    return {
+        "logs": entries,
+        "workspace": workspace,
+        "total": len(entries),
+    }
+
+
+@router.get("/{task_id}/node-detail/{node_id}/{phase}")
+async def api_get_node_detail(task_id: str, node_id: str, phase: str):
+    """获取节点输入/输出详情文件
+
+    phase: input / output / error
+    """
+    task = store.tasks.get(task_id)
+    if not task:
+        raise HTTPException(404, "任务不存在")
+
+    workspace = task.context.variables.get("workspace", "")
+    detail_path = os.path.join(workspace, ".agentflow", "nodes", f"{node_id}_{phase}.json")
+    if not os.path.isfile(detail_path):
+        raise HTTPException(404, f"详情文件不存在: {node_id}_{phase}.json")
+
+    try:
+        with open(detail_path, "r", encoding="utf-8", errors="replace") as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        raise HTTPException(500, f"读取详情失败: {e}")
 
 
 @router.get("/{task_id}/files")
