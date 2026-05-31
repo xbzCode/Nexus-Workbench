@@ -10,6 +10,7 @@
     "generate-api": "openapi-typescript http://localhost:8000/api/openapi.json -o ./src/lib/types.ts"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@radix-ui/react-slot": "^1.2.4",
     "@xyflow/react": "^12.0.0",
     "class-variance-authority": "^0.7.1",

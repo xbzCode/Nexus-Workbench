@@ -42,9 +42,6 @@ export default function WorkflowDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
-  const { workflow, loading, error } = useWorkflow(id);
-  const { update, remove } = useWorkflowActions();
-
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editName, setEditName] = useState("");
@@ -53,11 +50,13 @@ export default function WorkflowDetailPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
 
+  const { workflow, loading, error, refetch } = useWorkflow(id);
+
   const startEditing = useCallback(() => {
     if (!workflow) return;
     setEditName(workflow.name);
     setEditDesc(workflow.description ?? "");
-    setEditDag((workflow.dag ?? null) as DAGDefinition | null);
+    setEditDag((workflow.dag ?? { nodes: [], edges: [] }) as DAGDefinition);
     setEditing(true);
     setSaveSuccess(false);
   }, [workflow]);
@@ -80,6 +79,7 @@ export default function WorkflowDetailPage() {
       await update(id, body);
       setEditing(false);
       setSaveSuccess(true);
+      refetch();
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch {
       // error handling
@@ -104,6 +104,7 @@ export default function WorkflowDetailPage() {
       setTransitioning(true);
       try {
         await update(id, { status: nextStatus });
+        refetch();
       } catch {
         // error handling
       } finally {

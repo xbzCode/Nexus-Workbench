@@ -1,4 +1,4 @@
-/** DAG 自定义节点 — 状态色 + 配置入口 */
+/** DAG 自定义节点 — 显示名 + 类型图标 + 状态着色 */
 
 "use client";
 
@@ -10,6 +10,9 @@ import { Settings2 } from "lucide-react";
 export interface DagNodeData {
   label: string;
   definition_id: string;
+  displayName?: string;
+  icon?: string;
+  accentColor?: string;
   status?: string;
   config?: Record<string, unknown>;
   onConfigClick?: (nodeId: string) => void;
@@ -30,56 +33,78 @@ interface DagNodeProps {
 }
 
 export function DagNodeComponent({ id, data }: DagNodeProps) {
-  const borderStyle = data.status
+  const statusStyle = data.status
     ? NODE_STATUS_STYLES[data.status] ?? "border-border bg-card"
     : "border-border bg-card";
+  const accentColor = data.accentColor ?? "var(--color-muted-foreground)";
+  const icon = data.icon ?? "⚙️";
 
   return (
     <div
       className={cn(
-        "min-w-[150px] rounded-xl border-2 px-4 py-2.5 shadow-sm transition-all group",
-        borderStyle
+        "min-w-[160px] rounded-xl border-2 px-3 py-2.5 shadow-sm transition-all group hover:shadow-md",
+        statusStyle
       )}
+      style={{
+        borderColor: data.status ? undefined : accentColor + "40",
+      }}
     >
       <Handle
         type="target"
-        position={Position.Top}
-        className="!h-2 !w-2 !border-0 !bg-foreground/30"
+        position={Position.Left}
+        className="!h-2 !w-2 !border-0" 
+        style={{ backgroundColor: accentColor + "60" }}
       />
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-sm font-medium text-foreground">
-          {data.label}
-        </span>
-        <div className="flex items-center gap-1">
-          {data.onConfigClick && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                data.onConfigClick?.(id);
-              }}
-              className="opacity-0 group-hover:opacity-100 transition-opacity h-5 w-5 flex items-center justify-center rounded hover:bg-foreground/10"
-              title="节点配置"
-            >
-              <Settings2 className="h-3 w-3 text-muted-foreground" />
-            </button>
-          )}
-          {data.status && (
-            <Badge
-              variant="outline"
-              className="h-5 px-1.5 py-0 text-[10px]"
-            >
-              {data.status}
-            </Badge>
-          )}
+
+      <div className="flex items-center gap-2.5">
+        {/* 类型图标 */}
+        <div
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm"
+          style={{ backgroundColor: accentColor + "15" }}
+        >
+          <span>{icon}</span>
         </div>
+
+        {/* 文本信息 */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-sm font-medium text-foreground">
+              {data.displayName || data.label}
+            </span>
+            {data.status && (
+              <Badge
+                variant="outline"
+                className="h-4 px-1 py-0 text-[9px] shrink-0"
+              >
+                {data.status}
+              </Badge>
+            )}
+          </div>
+          <p className="truncate text-[10px] text-muted-foreground/60 font-mono">
+            {data.label}
+          </p>
+        </div>
+
+        {/* 配置按钮 */}
+        {data.onConfigClick && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              data.onConfigClick?.(id);
+            }}
+            className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 flex items-center justify-center rounded hover:bg-foreground/10 shrink-0"
+            title="节点配置"
+          >
+            <Settings2 className="h-3 w-3 text-muted-foreground" />
+          </button>
+        )}
       </div>
-      <p className="mt-0.5 truncate text-xs text-muted-foreground">
-        {data.definition_id}
-      </p>
+
       <Handle
         type="source"
-        position={Position.Bottom}
-        className="!h-2 !w-2 !border-0 !bg-foreground/30"
+        position={Position.Right}
+        className="!h-2 !w-2 !border-0"
+        style={{ backgroundColor: accentColor + "60" }}
       />
     </div>
   );

@@ -1,0 +1,11 @@
+{
+  "skill_name": "refine-requirements",
+  "skill_path": "E:\\Desktop\\Nexus-Workbench\\extensions\\nodes\\refine-requirements",
+  "skill_dir": "E:\\Desktop\\Nexus-Workbench\\extensions\\nodes\\refine-requirements",
+  "skill_entry": "SKILL.md",
+  "input_data": {
+    "task_input": {
+      "user_input": "生成一个关于微前端的架构图"
+    }
+  }
+}

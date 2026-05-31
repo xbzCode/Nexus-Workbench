@@ -1,4 +1,4 @@
-/** DAG 自定义边 — 带条件表达式标签 */
+/** DAG 自定义边 — 带条件表达式标签 + 选中高亮 */
 
 "use client";
 
@@ -46,7 +46,9 @@ export function DagEdgeComponent({
         path={edgePath}
         style={{
           stroke: selected ? "var(--color-brand)" : "var(--color-muted-foreground)",
-          strokeWidth: selected ? 2 : 1.5,
+          strokeWidth: selected ? 2.5 : 1.5,
+          strokeDasharray: condition ? "6 3" : undefined,
+          opacity: selected ? 1 : 0.6,
         }}
       />
       {/* 条件表达式标签 */}
@@ -64,7 +66,7 @@ export function DagEdgeComponent({
                 onConditionClick?.(id, "", "");
               }}
               className={cn(
-                "rounded px-1.5 py-0.5 text-[10px] transition-colors cursor-pointer",
+                "rounded px-1.5 py-0.5 text-[10px] transition-colors cursor-pointer whitespace-nowrap",
                 condition
                   ? "bg-brand/20 text-brand border border-brand/30 hover:bg-brand/30"
                   : "bg-muted text-muted-foreground border border-border hover:bg-surface-hover"

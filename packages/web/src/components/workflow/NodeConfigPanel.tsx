@@ -1,14 +1,16 @@
-/** 节点配置面板 — 侧边栏形式 */
+/** 节点配置面板 — 侧边栏：基本字段 + JSON 编辑器 */
 
 "use client";
 
-import { useState } from "react";
-import { X, Save } from "lucide-react";
+import { useMemo, useState } from "react";
+import { X, Save, Code } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NodeInstance } from "@/lib/types";
 
 interface NodeConfigPanelProps {
   node: NodeInstance | null;
+  displayName?: string;
+  configSchema?: Record<string, unknown> | null;
   onSave: (nodeId: string, config: Record<string, unknown>) => void;
   onClose: () => void;
   className?: string;
@@ -16,10 +18,13 @@ interface NodeConfigPanelProps {
 
 export function NodeConfigPanel({
   node,
+  displayName,
+  configSchema,
   onSave,
   onClose,
   className,
 }: NodeConfigPanelProps) {
+  const [showJson, setShowJson] = useState(false);
   const [configJson, setConfigJson] = useState(() => {
     if (!node?.config) return "{}";
     try {
@@ -32,9 +37,48 @@ export function NodeConfigPanel({
 
   if (!node) return null;
 
+  // 从 config_schema 提取字段定义
+  const schemaFields = useMemo(() => {
+    if (!configSchema || typeof configSchema !== "object") return [];
+    const props = (configSchema as Record<string, unknown>).properties as
+      | Record<string, { title?: string; type?: string; description?: string; default?: unknown }>
+      | undefined;
+    if (!props) return [];
+    return Object.entries(props).map(([key, val]) => ({
+      key,
+      title: val.title ?? key,
+      type: val.type ?? "string",
+      description: val.description ?? "",
+      defaultValue: val.default,
+    }));
+  }, [configSchema]);
+
+  const hasFormFields = schemaFields.length > 0;
+
+  // 构建表单值的临时 state（从 node.config 中读取当前值）
+  const [formValues, setFormValues] = useState<Record<string, string>>(() => {
+    if (!node.config || !hasFormFields) return {};
+    const vals: Record<string, string> = {};
+    for (const f of schemaFields) {
+      vals[f.key] = String(node.config[f.key] ?? f.defaultValue ?? "");
+    }
+    return vals;
+  });
+
+  const handleFormChange = (key: string, value: string) => {
+    setFormValues((prev) => ({ ...prev, [key]: value }));
+  };
+
   const handleSave = () => {
     try {
-      const parsed = JSON.parse(configJson);
+      let parsed: Record<string, unknown>;
+      if (hasFormFields && !showJson) {
+        // 从表单构建
+        parsed = { ...formValues };
+      } else {
+        // 从 JSON 解析
+        parsed = JSON.parse(configJson);
+      }
       setError(null);
       onSave(node.id, parsed);
     } catch {
@@ -53,11 +97,9 @@ export function NodeConfigPanel({
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <div className="min-w-0">
           <h3 className="text-sm font-medium text-foreground truncate">
-            {node.id}
+            {displayName || node.id}
           </h3>
-          <p className="text-xs text-muted-foreground truncate">
-            {node.definition_id}
-          </p>
+          <p className="text-xs text-muted-foreground truncate">{node.definition_id}</p>
         </div>
         <button
           onClick={onClose}
@@ -67,36 +109,85 @@ export function NodeConfigPanel({
         </button>
       </div>
 
-      {/* Config editor */}
-      <div className="flex-1 p-4 space-y-3 overflow-auto">
-        <div>
-          <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-            节点配置 (JSON)
-          </label>
-          <textarea
-            value={configJson}
-            onChange={(e) => {
-              setConfigJson(e.target.value);
-              setError(null);
-            }}
-            className={cn(
-              "w-full h-48 rounded-lg border bg-slate-900/50 p-3 text-xs font-mono text-slate-300 resize-none focus:outline-none focus:ring-1",
-              error
-                ? "border-red-500/50 focus:ring-red-500"
-                : "border-border focus:ring-brand"
-            )}
-            spellCheck={false}
-          />
-          {error && (
-            <p className="mt-1 text-xs text-red-400">{error}</p>
-          )}
-        </div>
+      {/* Content */}
+      <div className="flex-1 p-4 space-y-4 overflow-auto">
+        {/* 表单模式 vs JSON 切换 */}
+        {hasFormFields && !showJson ? (
+          // 表单模式
+          <div className="space-y-3">
+            {schemaFields.map((field) => (
+              <div key={field.key}>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">
+                  {field.title}
+                </label>
+                {field.description && (
+                  <p className="text-[10px] text-muted-foreground/60 mb-1">{field.description}</p>
+                )}
+                {field.type === "boolean" ? (
+                  <select
+                    value={formValues[field.key] ?? "false"}
+                    onChange={(e) => handleFormChange(field.key, e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground focus:border-brand focus:outline-none"
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                ) : (
+                  <input
+                    value={formValues[field.key] ?? ""}
+                    onChange={(e) => handleFormChange(field.key, e.target.value)}
+                    placeholder={field.title}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-brand focus:outline-none"
+                  />
+                )}
+              </div>
+            ))}
+            {/* 切换到 JSON */}
+            <button
+              onClick={() => setShowJson(true)}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            >
+              <Code className="h-3 w-3" />
+              切换到 JSON 编辑器
+            </button>
+          </div>
+        ) : (
+          // JSON 编辑模式
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                节点配置 (JSON)
+              </label>
+              {hasFormFields && showJson && (
+                <button
+                  onClick={() => setShowJson(false)}
+                  className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground"
+                >
+                  返回表单
+                </button>
+              )}
+            </div>
+            <textarea
+              value={configJson}
+              onChange={(e) => {
+                setConfigJson(e.target.value);
+                setError(null);
+              }}
+              className={cn(
+                "w-full h-48 rounded-lg border bg-slate-900/50 p-3 text-xs font-mono text-slate-300 resize-none focus:outline-none focus:ring-1",
+                error
+                  ? "border-red-500/50 focus:ring-red-500"
+                  : "border-border focus:ring-brand"
+              )}
+              spellCheck={false}
+            />
+            {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+          </div>
+        )}
 
         {/* Position info */}
         <div>
-          <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-            位置
-          </label>
+          <label className="text-xs font-medium text-muted-foreground block mb-1.5">位置</label>
           <div className="flex gap-2 text-xs">
             <span className="px-2 py-1 rounded bg-muted text-muted-foreground">
               x: {node.position?.x ?? 0}

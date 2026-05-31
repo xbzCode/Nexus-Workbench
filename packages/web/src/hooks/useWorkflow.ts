@@ -35,6 +35,7 @@ export function useWorkflow(id: string | null) {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!id) {
@@ -49,9 +50,11 @@ export function useWorkflow(id: string | null) {
       .then((res) => setWorkflow(res.data))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load workflow"))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, refreshKey]);
 
-  return { workflow, loading, error };
+  const refetch = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  return { workflow, loading, error, refetch };
 }
 
 export function useWorkflowActions() {
