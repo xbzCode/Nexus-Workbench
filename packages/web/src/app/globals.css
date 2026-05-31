@@ -1,0 +1,231 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Light Theme (warm off-white, NOT pure white) ── */
+/* Use @theme (WITHOUT inline) so utility classes use var() references
+   and runtime CSS variable changes (dark mode toggle) actually work */
+@theme {
+  --color-background: #f8f7f4;
+  --color-foreground: #1a1a2e;
+  --color-card: #ffffff;
+  --color-card-foreground: #1a1a2e;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #1a1a2e;
+  --color-primary: #6b5ce7;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f0eee8;
+  --color-secondary-foreground: #2a2a40;
+  --color-muted: #f0eee8;
+  --color-muted-foreground: #787890;
+  --color-accent: #fef7e8;
+  --color-accent-foreground: #92400e;
+  --color-destructive: #dc2626;
+  --color-destructive-foreground: #ffffff;
+  --color-border: #e5e1d8;
+  --color-input: #e5e1d8;
+  --color-ring: #6b5ce7;
+
+  /* Brand colors */
+  --color-brand: #6b5ce7;
+  --color-brand-foreground: #ffffff;
+  --color-brand-muted: #ede9fe;
+  --color-violet: #7c3aed;
+  --color-violet-foreground: #ffffff;
+  --color-violet-muted: #ede9fe;
+  --color-amber: #d97706;
+  --color-amber-foreground: #ffffff;
+  --color-amber-muted: #fef3c7;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f5f3ee;
+
+  /* Topbar */
+  --color-topbar: #ffffff;
+  --color-topbar-border: #e5e1d8;
+  --color-topbar-foreground: #1a1a2e;
+  --color-topbar-muted: #787890;
+  --color-topbar-active: #6b5ce7;
+  --color-topbar-active-bg: #f0eee8;
+
+  /* Sidebar (kept for shadcn compat) */
+  --color-sidebar-background: #f0eee8;
+  --color-sidebar-foreground: #1a1a2e;
+  --color-sidebar-primary: #6b5ce7;
+  --color-sidebar-primary-foreground: #ffffff;
+  --color-sidebar-accent: #e5e1d8;
+  --color-sidebar-accent-foreground: #2a2a40;
+  --color-sidebar-border: #e5e1d8;
+  --color-sidebar-ring: #6b5ce7;
+
+  /* ── Radii ── */
+  --radius-sm: calc(0.5rem - 2px);
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: calc(0.625rem + 4px);
+
+  /* ── Animations ── */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-slide-up: slide-up 0.25s ease-out;
+  --animate-scale-in: scale-in 0.15s ease-out;
+}
+
+/* ── Dark Theme overrides ── */
+html.dark {
+  --color-background: #0a0a12;
+  --color-foreground: #e8e8f0;
+  --color-card: #14141f;
+  --color-card-foreground: #e8e8f0;
+  --color-popover: #1a1a2a;
+  --color-popover-foreground: #e8e8f0;
+  --color-primary: #8b7cf6;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #1c1c2c;
+  --color-secondary-foreground: #e8e8f0;
+  --color-muted: #1c1c2c;
+  --color-muted-foreground: #8888a0;
+  --color-accent: #2a2218;
+  --color-accent-foreground: #fbbf24;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-border: #242438;
+  --color-input: #1c1c30;
+  --color-ring: #8b7cf6;
+
+  --color-brand: #8b7cf6;
+  --color-brand-foreground: #ffffff;
+  --color-brand-muted: #1e1a30;
+  --color-violet: #8b5cf6;
+  --color-violet-foreground: #ffffff;
+  --color-violet-muted: #1e1a30;
+  --color-amber: #f5a623;
+  --color-amber-foreground: #1a1a2e;
+  --color-amber-muted: #2a2218;
+  --color-surface: #161622;
+  --color-surface-hover: #1e1e2e;
+
+  --color-topbar: #10101a;
+  --color-topbar-border: #242438;
+  --color-topbar-foreground: #e8e8f0;
+  --color-topbar-muted: #6b6b80;
+  --color-topbar-active: #8b7cf6;
+  --color-topbar-active-bg: #1c1c2c;
+
+  --color-sidebar-background: #0e0e18;
+  --color-sidebar-foreground: #e8e8f0;
+  --color-sidebar-primary: #8b7cf6;
+  --color-sidebar-primary-foreground: #ffffff;
+  --color-sidebar-accent: #1c1c2c;
+  --color-sidebar-accent-foreground: #e8e8f0;
+  --color-sidebar-border: #242438;
+  --color-sidebar-ring: #8b7cf6;
+}
+
+/* ── Keyframes ── */
+@keyframes accordion-down {
+  from { height: 0; }
+  to { height: var(--radix-accordion-content-height); }
+}
+
+@keyframes accordion-up {
+  from { height: var(--radix-accordion-content-height); }
+  to { height: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes tab-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Base Styles ── */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ── Default border color follows theme ── */
+*,
+::before,
+::after {
+  border-color: var(--color-border);
+}
+
+/* ── Remove default focus ring on Chat textarea ── */
+.chat-input-box textarea:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* ── Tab content transition ── */
+.tab-content-enter {
+  animation: tab-fade 0.2s ease-out;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted-foreground);
+}
+
+/* ── Selection ── */
+::selection {
+  background-color: var(--color-brand-muted);
+  color: var(--color-foreground);
+}
+
+/* ── React Flow overrides for theming ── */
+.react-flow__background {
+  background-color: var(--color-background) !important;
+}
+
+.react-flow__controls {
+  border-radius: var(--radius-lg) !important;
+  overflow: hidden;
+}
+
+/* ── Utility classes ── */
+.animate-pulse-soft {
+  animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}

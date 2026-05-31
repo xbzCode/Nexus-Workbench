@@ -1,0 +1,103 @@
+version: "3.9"
+
+services:
+  # ========== PostgreSQL ==========
+  postgres:
+    image: postgres:16-alpine
+    container_name: agentflow-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agentflow
+      POSTGRES_PASSWORD: agentflow123
+      POSTGRES_DB: agentflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # 4C4G 云服务器调优
+    command: >
+      postgres
+      -c shared_buffers=48MB
+      -c effective_cache_size=128MB
+      -c work_mem=4MB
+      -c max_connections=50
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ========== Redis ==========
+  redis:
+    image: redis:7-alpine
+    container_name: agentflow-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    # 4C4G 云服务器调优
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ========== 后端 FastAPI 服务 ==========
+  server:
+    build:
+      context: ./packages/server
+    container_name: agentflow-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # 数据库/Redis 连接（Docker 网络内使用 service 名）
+      DATABASE_URL: "postgresql+asyncpg://agentflow:agentflow123@postgres:5432/agentflow"
+      REDIS_URL: "redis://redis:6379/0"
+      # LLM 配置（从宿主环境变量继承）
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-1.0}
+      LLM_TOP_P: ${LLM_TOP_P:-0.2}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-6000}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-120.0}
+      # 其他配置
+      CODEBUDDY_PATH: ${CODEBUDDY_PATH:-codebuddy}
+      WORKSPACE_DIR: /workspace
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - workspace_data:/workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ========== 前端 Next.js 服务 ==========
+  web:
+    build:
+      context: ./packages/web
+    container_name: agentflow-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Next.js 代理后端 API 的地址（Docker 网络内使用 service 名）
+      BACKEND_URL: "http://server:8000"
+    depends_on:
+      - server
+
+volumes:
+  pgdata:
+  redisdata:
+  workspace_data:

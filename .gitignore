@@ -30,7 +30,28 @@ Desktop.ini
 
 # 日志
 *.log
+logs/
+packages/server/server_*.txt
+packages/server/e2e_output.txt
+packages/server/tests/e2e/result.txt
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# 测试
+test.db
 
 # 环境变量
 .env
 .env.local
+packages/server/.env
+packages/web/.env.local
+
+
+mvp-server
+mvpweb
+lookWeb
+mvp
