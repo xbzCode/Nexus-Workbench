@@ -53,6 +53,7 @@ async def sse_stream(
                     "data": event.data,
                     "source": event.source,
                     "task_id": str(event.task_id) if event.task_id else None,
+                    "timestamp": event.timestamp,
                 }, default=str)
                 yield f"data: {data}\n\n"
         finally:

@@ -3,13 +3,13 @@
 import os
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import settings
-from app.core.dag.serializer import dag_from_dict
 from app.core.events.bus import Event, EventBus, get_event_bus
 from app.core.executor.engine import execute_dag
 from app.models.task import Task, TaskStep
@@ -124,8 +124,10 @@ async def start_task(
     import asyncio
     from app.config.database import async_session_factory
 
-    # 工作目录
-    workspace_dir = os.path.abspath(settings.WORKSPACE_DIR)
+    # 每个任务独立的工作目录: workspace/{task_id}/
+    base_workspace = os.path.abspath(settings.WORKSPACE_DIR)
+    workspace_dir = os.path.join(base_workspace, str(task_id))
+    os.makedirs(workspace_dir, exist_ok=True)
 
     async def _run():
         """后台任务 — 使用独立 session 更新状态"""
@@ -142,6 +144,9 @@ async def start_task(
                 # 更新任务状态（如果 engine 没有更新）
                 bg_task = await bg_session.get(Task, task_id)
                 if bg_task and bg_task.status == "running":
+                    # 收集产物文件列表
+                    artifact_files = _collect_task_files(workspace_dir)
+                    node_outputs["_artifacts"] = artifact_files
                     bg_task.output_data = node_outputs
                     bg_task.status = "completed"
                     bg_task.completed_at = datetime.now(timezone.utc)
@@ -230,3 +235,42 @@ async def resume_task(session: AsyncSession, task: Task, workflow_dag: dict | No
         data={"task_id": str(task.id)},
         task_id=task.id,
     ))
+
+
+# ── 产物文件 ──
+
+# 产物收集黑名单（不展示的路径模式）
+_ARTIFACT_EXCLUDE = {".codebuddy", "__pycache__", ".git", "node_modules", ".venv", "venv", ".env"}
+
+
+def _collect_task_files(workspace_dir: str) -> list[dict[str, Any]]:
+    """扫描 workspace 目录，收集任务产物文件列表"""
+    import time
+    files = []
+    base = Path(workspace_dir)
+    if not base.is_dir():
+        return files
+
+    for entry in sorted(base.rglob("*"), key=lambda p: (p.is_dir(), p.name.lower())):
+        # 跳过排除的目录
+        if any(part in _ARTIFACT_EXCLUDE for part in entry.parts):
+            continue
+        if entry.is_file():
+            try:
+                stat = entry.stat()
+                rel = entry.relative_to(base).as_posix()
+                files.append({
+                    "path": rel,
+                    "size": stat.st_size,
+                    "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                })
+            except OSError:
+                pass
+    return files
+
+
+def get_task_files(task_id: uuid.UUID) -> list[dict[str, Any]]:
+    """读取任务 workspace 目录下的文件列表（直接读磁盘，不查 DB）"""
+    base_workspace = os.path.abspath(settings.WORKSPACE_DIR)
+    workspace_dir = os.path.join(base_workspace, str(task_id))
+    return _collect_task_files(workspace_dir)

@@ -15,6 +15,7 @@ import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 # 队列最大闲置时间（秒），超过此时间未被消费则视为泄漏
@@ -28,6 +29,7 @@ class Event:
     data: dict[str, Any] = field(default_factory=dict)
     source: str | None = None  # 事件来源（如 node_id）
     task_id: uuid.UUID | None = None  # 所属任务
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())  # 事件时间戳
 
 
 class _TrackedQueue(asyncio.Queue[Event]):

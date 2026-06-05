@@ -9,8 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import type { APIResponse, Task, TaskCreate } from "@/lib/types";
-import { Plus, Loader2, Clock, Zap, AlertCircle, CheckCircle2, Loader, XCircle, Play, FileText, Cpu, Sparkles } from "lucide-react";
+import type { APIResponse, Task, TaskCreate, Step } from "@/lib/types";
+import {
+  Plus, Loader2, Clock, Zap, AlertCircle, CheckCircle2,
+  Loader, XCircle, Play, Cpu, Sparkles, Workflow, ArrowRight,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type FilterKey = "all" | "running" | "pending" | "completed" | "failed";
@@ -23,19 +26,12 @@ const FILTER_TABS: { key: FilterKey; label: string; icon: React.ElementType }[] 
   { key: "failed", label: "失败", icon: XCircle },
 ];
 
-/* 任务类型对应的视觉色 */
-const MODE_STYLE: Record<string, { border: string; bg: string; tag: string }> = {
-  workflow: { border: "border-l-brand", bg: "bg-brand/5", tag: "bg-brand-muted text-brand" },
-  dynamic_assembly: { border: "border-l-violet", bg: "bg-violet/5", tag: "bg-violet/15 text-violet" },
-  bare_agent: { border: "border-l-amber", bg: "bg-amber/5",  tag: "bg-amber-muted text-amber" },
-  agent:    { border: "border-l-amber", bg: "bg-amber/5",  tag: "bg-amber-muted text-amber" },
-  manual:   { border: "border-l-emerald-400", bg: "bg-emerald-400/5", tag: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
+const MODE_CONFIG: Record<string, { label: string; icon: React.ElementType; tagClass: string; borderClass: string }> = {
+  workflow: { label: "工作流", icon: Workflow, tagClass: "bg-emerald-500/10 text-emerald-400 border-emerald-400/30", borderClass: "border-l-emerald-400" },
+  dynamic_assembly: { label: "动态组装", icon: Sparkles, tagClass: "bg-cyan-500/10 text-cyan-400 border-cyan-400/30", borderClass: "border-l-cyan-400" },
+  bare_agent: { label: "Agent", icon: Cpu, tagClass: "bg-amber/10 text-amber border-amber/30", borderClass: "border-l-amber" },
 };
-const DEFAULT_MODE = { border: "border-l-muted-foreground", bg: "bg-muted/50", tag: "bg-muted text-muted-foreground" };
-
-function getModeStyle(mode: string) {
-  return MODE_STYLE[mode] ?? DEFAULT_MODE;
-}
+const DEFAULT_MODE = { label: "", icon: Cpu, tagClass: "bg-muted text-muted-foreground border-border", borderClass: "border-l-muted-foreground" };
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -49,15 +45,43 @@ function formatRelativeTime(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("zh-CN");
 }
 
+/** 从 context.dag 或 output_data 中提取节点状态 */
+function getNodeProgress(task: Task): { nodes: string[]; statuses: Record<string, string> } {
+  const dag = task.context?.dag as { nodes: { id: string }[] } | undefined;
+  const nodeIds = dag?.nodes?.map(n => n.id) ?? [];
+  const statuses: Record<string, string> = {};
+
+  // 从 output_data 或 steps 推断节点状态
+  const outputs = task.output_data as Record<string, unknown> | null;
+  if (outputs) {
+    for (const nodeId of nodeIds) {
+      const nodeOut = outputs[nodeId] as { status?: string } | undefined;
+      if (nodeOut) {
+        statuses[nodeId] = nodeOut.status === "completed" ? "completed" :
+          nodeOut.status === "failed" ? "failed" : "running";
+      }
+    }
+  }
+
+  // running 状态默认全部 pending（除非有完成记录）
+  if (task.status === "running" && Object.keys(statuses).length === 0) {
+    for (const nodeId of nodeIds) statuses[nodeId] = "pending";
+  }
+  if (task.status === "completed" && Object.keys(statuses).length === 0) {
+    for (const nodeId of nodeIds) statuses[nodeId] = "completed";
+  }
+
+  return { nodes: nodeIds, statuses };
+}
+
 export default function TasksPage() {
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
-  const [animKey, setAnimKey] = useState(0); // for tab transition
 
-  // Create modal state
+  // Create modal
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState("");
   const [inputData, setInputData] = useState("");
@@ -77,9 +101,17 @@ export default function TasksPage() {
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
+  // 5s 轮询 running/pending 任务
+  useEffect(() => {
+    const hasActive = tasks.some(t => t.status === "running" || t.status === "pending");
+    if (!hasActive) return;
+    const timer = setInterval(fetchTasks, 5000);
+    return () => clearInterval(timer);
+  }, [tasks, fetchTasks]);
+
   const filtered = useMemo(() => {
     if (activeFilter === "all") return tasks;
-    return tasks.filter((t) => t.status === activeFilter);
+    return tasks.filter(t => t.status === activeFilter);
   }, [tasks, activeFilter]);
 
   const counts = useMemo(() => {
@@ -87,11 +119,6 @@ export default function TasksPage() {
     for (const t of tasks) c[t.status] = (c[t.status] ?? 0) + 1;
     return c;
   }, [tasks]);
-
-  const handleFilterChange = (key: FilterKey) => {
-    setActiveFilter(key);
-    setAnimKey((k) => k + 1); // trigger re-animation
-  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,13 +132,8 @@ export default function TasksPage() {
       };
       const res = await api.post<APIResponse<Task>>("/tasks", body);
       const taskId = res.data?.id;
-      // 创建后自动启动
       if (taskId) {
-        try {
-          await api.post(`/tasks/${taskId}/start`);
-        } catch {
-          // 启动失败不阻塞跳转
-        }
+        try { await api.post(`/tasks/${taskId}/start`); } catch {}
         router.push(`/tasks/${taskId}`);
       }
       setShowCreate(false);
@@ -125,25 +147,15 @@ export default function TasksPage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20 text-muted-foreground">
-        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-        加载中…
-      </div>
-    );
+    return <div className="flex items-center justify-center py-20 text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />加载中…</div>;
   }
-
   if (error) {
-    return (
-      <div className="mx-6 mt-6 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">
-        {error}
-      </div>
-    );
+    return <div className="mx-6 mt-6 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">{error}</div>;
   }
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header + filter row */}
+      {/* Header */}
       <div className="shrink-0 border-b border-border bg-background px-6 py-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
@@ -151,38 +163,25 @@ export default function TasksPage() {
             <p className="mt-0.5 text-sm text-muted-foreground">查看和管理任务执行</p>
           </div>
           <Button size="sm" onClick={() => setShowCreate(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            新建任务
+            <Plus className="mr-1.5 h-4 w-4" />新建任务
           </Button>
         </div>
-
-        {/* Filter tabs */}
         <div className="flex items-center gap-1">
-          {FILTER_TABS.map((tab) => {
+          {FILTER_TABS.map(tab => {
             const Icon = tab.icon;
             const count = counts[tab.key] ?? 0;
             return (
               <button
                 key={tab.key}
-                onClick={() => handleFilterChange(tab.key)}
+                onClick={() => setActiveFilter(tab.key)}
                 className={cn(
                   "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all",
-                  activeFilter === tab.key
-                    ? "bg-brand-muted text-brand"
-                    : "text-muted-foreground hover:text-foreground hover:bg-surface-hover"
+                  activeFilter === tab.key ? "bg-brand-muted text-brand" : "text-muted-foreground hover:text-foreground hover:bg-surface-hover"
                 )}
               >
-                <Icon className="h-3.5 w-3.5" />
-                {tab.label}
+                <Icon className="h-3.5 w-3.5" />{tab.label}
                 {count > 0 && (
-                  <span
-                    className={cn(
-                      "min-w-[18px] rounded-full px-1 text-[10px] font-semibold text-center",
-                      activeFilter === tab.key
-                        ? "bg-brand text-brand-foreground"
-                        : "bg-muted text-muted-foreground"
-                    )}
-                  >
+                  <span className={cn("min-w-[18px] rounded-full px-1 text-[10px] font-semibold text-center", activeFilter === tab.key ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground")}>
                     {count}
                   </span>
                 )}
@@ -192,13 +191,11 @@ export default function TasksPage() {
         </div>
       </div>
 
-      {/* Task content with transition */}
+      {/* Task list */}
       <div className="flex-1 overflow-y-auto p-6">
         {tasks.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface">
-              <Zap className="h-8 w-8" />
-            </div>
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface"><Zap className="h-8 w-8" /></div>
             <p className="mb-1 text-base font-medium">暂无任务</p>
             <p className="mb-4 text-sm">创建你的第一个执行任务</p>
             <Button onClick={() => setShowCreate(true)}>新建任务</Button>
@@ -213,37 +210,27 @@ export default function TasksPage() {
         )}
 
         {filtered.length > 0 && (
-          <div key={animKey} className="tab-content-enter grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((task, i) => {
-              const style = getModeStyle(task.execution_mode);
-              const ModeIcon = task.execution_mode === "workflow"
-                ? Play
-                : task.execution_mode === "dynamic_assembly"
-                ? Sparkles
-                : task.execution_mode === "bare_agent"
-                ? Cpu
-                : FileText;
+          <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+            {filtered.map((task) => {
+              const mode = MODE_CONFIG[task.execution_mode] ?? DEFAULT_MODE;
+              const ModeIcon = mode.icon;
+              const { nodes, statuses } = getNodeProgress(task);
 
               return (
                 <Link
                   key={task.id}
                   href={`/tasks/${task.id}`}
                   className="group block"
-                  style={{ animationDelay: `${i * 40}ms` }}
                 >
-                  <div
-                    className={cn(
-                      "relative rounded-xl border border-border bg-card p-4 transition-all hover:shadow-md hover:border-brand/30 hover:-translate-y-0.5",
-                      "border-l-4",
-                      style.border
-                    )}
-                  >
-                    {/* Top row: status + mode tag */}
-                    <div className="mb-3 flex items-center justify-between">
+                  <div className={cn(
+                    "rounded-xl border border-border bg-card p-4 transition-all hover:shadow-md hover:border-brand/30 hover:-translate-y-0.5 border-l-4",
+                    mode.borderClass
+                  )}>
+                    {/* Top row */}
+                    <div className="flex items-center justify-between mb-2">
                       <StatusBadge status={task.status} />
-                      <span className={cn("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium", style.tag)}>
-                        <ModeIcon className="h-3 w-3" />
-                        {task.execution_mode === "workflow" ? "工作流" : task.execution_mode === "dynamic_assembly" ? "动态组装" : task.execution_mode === "bare_agent" ? "Agent" : task.execution_mode}
+                      <span className={cn("inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium", mode.tagClass)}>
+                        <ModeIcon className="h-3 w-3" />{mode.label}
                       </span>
                     </div>
 
@@ -252,15 +239,39 @@ export default function TasksPage() {
                       {task.title}
                     </h3>
 
-                    {/* Bottom row: time */}
+                    {/* Progress dots */}
+                    {nodes.length > 0 && (
+                      <div className="flex items-center gap-1.5 mb-2">
+                        {nodes.map((nodeId, i) => {
+                          const s = statuses[nodeId] || "pending";
+                          return (
+                            <div key={nodeId} className="flex items-center gap-1.5">
+                              <span
+                                className={cn(
+                                  "h-2 w-2 rounded-full",
+                                  s === "completed" && "bg-emerald-400",
+                                  s === "running" && "bg-brand animate-pulse",
+                                  s === "failed" && "bg-red-400",
+                                  s === "pending" && "bg-muted-foreground/30",
+                                )}
+                                title={`${nodeId}: ${s}`}
+                              />
+                              {i < nodes.length - 1 && (
+                                <span className={cn("w-2 h-px", statuses[nodes[i + 1]] === "completed" ? "bg-emerald-400/40" : "bg-muted-foreground/20")} />
+                              )}
+                            </div>
+                          );
+                        })}
+                        <span className="ml-auto text-[10px] text-muted-foreground">
+                          {nodes.filter(n => statuses[n] === "completed").length}/{nodes.length}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Bottom */}
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {formatRelativeTime(task.created_at)}
-                      </span>
-                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-brand">
-                        查看详情 →
-                      </span>
+                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatRelativeTime(task.created_at)}</span>
+                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-brand flex items-center gap-0.5">查看<ArrowRight className="h-3 w-3" /></span>
                     </div>
                   </div>
                 </Link>
@@ -270,46 +281,29 @@ export default function TasksPage() {
         )}
       </div>
 
-      {/* ── Create Task Modal ── */}
+      {/* Create modal */}
       {showCreate && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 backdrop-blur-sm"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowCreate(false); }}
-        >
-          <div
-            className="animate-scale-in w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setShowCreate(false); }}>
+          <div className="animate-scale-in w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
             <h2 className="mb-5 text-base font-semibold text-foreground">新建任务</h2>
             <form onSubmit={handleCreate} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="task-title">标题 *</Label>
-                <Input
-                  id="task-title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="例：修复登录页bug"
-                  autoFocus
-                  required
-                />
+                <Input id="task-title" value={title} onChange={e => setTitle(e.target.value)} placeholder="例：修复登录页bug" autoFocus required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="task-input">输入数据 (JSON)</Label>
-                <Textarea
-                  id="task-input"
-                  value={inputData}
-                  onChange={(e) => setInputData(e.target.value)}
-                  placeholder='{"key": "value"}'
-                  rows={3}
-                  className="font-mono text-sm"
-                />
+                <Textarea id="task-input" value={inputData} onChange={e => setInputData(e.target.value)} placeholder='{"key": "value"}' rows={3} className="font-mono text-sm" />
+              </div>
+              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-surface-hover/30 text-[11px] text-muted-foreground">
+                <Sparkles className="h-3.5 w-3.5 text-brand" />
+                系统将自动匹配工作流或组装节点执行
               </div>
               {createError && <p className="text-sm text-destructive">{createError}</p>}
               <div className="flex justify-end gap-2 pt-1">
                 <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>取消</Button>
                 <Button type="submit" disabled={submitting || !title.trim()}>
-                  {submitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                  创建
+                  {submitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}创建并执行
                 </Button>
               </div>
             </form>

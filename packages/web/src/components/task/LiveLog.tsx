@@ -157,7 +157,7 @@ export default function LiveLog({ events, className, isLive = false }: LiveLogPr
           return (
             <div key={i} className="flex items-start gap-2 leading-relaxed py-0.5">
               <span className="shrink-0 text-muted-foreground/50 w-[60px] text-right">
-                {formatTime(new Date())}
+                {evt.timestamp ? formatTime(new Date(evt.timestamp)) : formatTime(new Date())}
               </span>
               <span className={cn("shrink-0 mt-0.5", style.color)}>
                 {EventIcon ? <EventIcon className="h-3 w-3" /> : <span className="inline-block h-3 w-3 rounded-full border border-border" />}

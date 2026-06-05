@@ -55,3 +55,6 @@ mvp-server
 mvpweb
 lookWeb
 mvp
+
+workspace
+workspace/*

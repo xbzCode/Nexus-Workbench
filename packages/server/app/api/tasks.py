@@ -1,6 +1,7 @@
 """任务 API — 含启动/取消/执行"""
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,3 +95,13 @@ async def resume_task(task_id: str, session: AsyncSession = Depends(get_session)
 async def get_task_steps(task_id: str, session: AsyncSession = Depends(get_session)):
     steps = await task_service.get_task_steps(session, uuid.UUID(task_id))
     return APIResponse(data=steps)
+
+
+@router.get("/{task_id}/files")
+async def get_task_files(task_id: str):
+    """获取任务 workspace 目录下的产物文件列表（直接读磁盘）"""
+    try:
+        files = task_service.get_task_files(uuid.UUID(task_id))
+        return APIResponse(data=files)
+    except Exception as e:
+        return APIResponse(data=[], message=f"读取文件列表失败: {str(e)}")

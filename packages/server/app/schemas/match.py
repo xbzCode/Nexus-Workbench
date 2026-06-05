@@ -18,3 +18,4 @@ class MatchResult(BaseModel):
     confidence: float | None = None
     dag: DAGDefinition | None = None
     reasoning: str | None = None
+    available_workflow_names: list[str] | None = None  # 用户已有但未匹配的工作流名称（调试用）

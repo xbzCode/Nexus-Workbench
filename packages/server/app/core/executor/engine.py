@@ -373,26 +373,32 @@ async def _execute_node_via_adapter(
             ))
 
         elif isinstance(event, QuestionDetectedEvent):
-            # Agent 提问 → 创建审批 → 等待用户 → resume
+            # Agent 提问 → LLM 分类 → 创建审批 → 等待用户 → resume
             approval_count += 1
             question_text = event.question[:500]
             logger.info(f"[DAG] Agent question: {question_text[:100]}")
             event_bus.emit(Event(
                 event_type="node:question",
-                data={"node_id": node_id, "question": question_text},
+                data={"node_id": node_id, "question": question_text,
+                      "timestamp": datetime.now(timezone.utc).isoformat()},
                 source=node_id,
                 task_id=task_id,
             ))
-            # 创建审批 — type=input，携带选项列表供前端渲染
+            # 调用 LLM 分类提问类型
+            classification = await _classify_approval_type(question_text)
+            approval_type = classification.get("type", "input")
+            approval_options = classification.get("options") or event.options
+            logger.info(f"[DAG] Approval classified: type={approval_type}, options={approval_options}")
+            # 创建审批
             approval_id = await _create_and_wait_approval(
                 task_id=task_id,
                 node_id=node_id,
                 step_id=step_id if task_id else None,
                 source="agent",
-                approval_type="input",
+                approval_type=approval_type,
                 title=f"Agent 提问: {node_id}",
                 description=question_text,
-                options=event.options if event.options else None,
+                options=approval_options,
                 bg_session_factory=bg_session_factory,
                 event_bus=event_bus,
             )
@@ -804,3 +810,74 @@ def _resolve_source_dir(source_dir: str | None) -> str | None:
 
     logger.warning(f"[DAG] Cannot resolve source_dir: {source_dir} → {resolved}")
     return None
+
+
+# ── LLM 审批类型分类 ──
+
+async def _classify_approval_type(question_text: str) -> dict[str, Any]:
+    """调用 LLM 判断 Agent 提问的审批类型
+
+    Returns:
+        {"type": "choice"|"input"|"confirm", "options": [...], "reasoning": "..."}
+    """
+    try:
+        from app.core.llm.client import achat
+        from app.config.settings import settings
+
+        prompt = f"""分析以下 Agent 提问，判断用户应该如何回应。
+
+Agent 提问：
+{question_text}
+
+请判断这个问题属于哪种类型，返回 JSON：
+
+类型说明：
+- "choice"：Agent 给用户提供了明确的选项（如"你想用方案A还是方案B？"、"请选择..."）
+  需要提取选项列表
+- "input"：Agent 要求用户输入具体内容（如"请输入..."、"请描述..."），没有给选项
+- "confirm"：Agent 在征求确认或许可（如"是否继续？"、"确认执行？"）
+
+返回格式：
+{{
+  "type": "choice|input|confirm",
+  "options": [
+    {{"label": "选项描述", "value": "唯一值"}}
+  ],
+  "reasoning": "简短说明为什么这样分类"
+}}
+
+规则：
+- 如果问题中包含选择意味（"还是"、"或者"、"哪种"、"哪个"），但选择项不明确，仍然归为 input
+- 只有 Agent 明确列举了 2 个及以上选项时，才归为 choice
+- options 数组中 value 用简短英文标识
+- 对于 confirm 类型，options 为空数组
+- 只返回 JSON，不要其他内容"""
+
+        content = await achat(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=300,
+            timeout=settings.LLM_TIMEOUT,
+        )
+        if not content:
+            logger.warning("[DAG] _classify_approval_type: LLM 不可用，降级为 input")
+            return {"type": "input", "options": [], "reasoning": "LLM 不可用"}
+
+        # 提取 JSON
+        if "```" in content:
+            parts = content.split("```")
+            for p in parts:
+                p = p.strip()
+                if p.startswith("json"):
+                    p = p[4:]
+                if p.startswith("{"):
+                    content = p
+                    break
+
+        result = json.loads(content)
+        logger.info(f"[DAG] Approval classified: {result.get('type')}, reason={result.get('reasoning')}")
+        return result
+
+    except Exception as e:
+        logger.warning(f"[DAG] _classify_approval_type failed: {e}, 降级为 input")
+        return {"type": "input", "options": [], "reasoning": f"分类异常: {str(e)[:50]}"}

@@ -229,14 +229,19 @@ async def confirm_workflow(
     category: str | None = None,
     dag: DAGDefinition | None = None,
 ):
-    """用户确认后保存工作流，返回 Workflow ORM 对象"""
+    """用户确认后保存工作流，自动发布（status=published），返回 Workflow ORM 对象"""
     data = WorkflowCreate(
         name=name,
         description=description,
         category=category,
         dag=dag,
     )
-    return await workflow_service.create_workflow(session, user_id, data)
+    wf = await workflow_service.create_workflow(session, user_id, data)
+    # 用户通过自然语言确认创建 → 自动发布，立即可用
+    wf.status = "published"
+    await session.commit()
+    await session.refresh(wf)
+    return wf
 
 
 # ── 内部工具 ──

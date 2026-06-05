@@ -1,4 +1,9 @@
-/** 审批卡片组件 — 支持 confirm/choice/input 三种审批类型 */
+/** 审批卡片组件 — 支持 confirm/choice/input 三种审批类型
+ * 
+ * - confirm: 确认操作 → 通过/拒绝按钮
+ * - choice: 多选一 → 选项单选按钮 + 确认按钮
+ * - input: 开放输入 → 文本输入框 + 提交按钮
+ */
 
 "use client";
 
@@ -9,13 +14,14 @@ import type { Approval, ApprovalResolve } from "@/lib/types";
 import {
   CheckCircle2,
   XCircle,
-  Clock,
   ShieldCheck,
   AlertTriangle,
   Zap,
-  HelpCircle,
+  Clock,
   ListChecks,
   MessageSquare,
+  HelpCircle,
+  Send,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -104,80 +110,46 @@ export default function ApprovalCard({
             <span className="text-sm font-medium text-foreground truncate">
               {approval.title}
             </span>
-            {isAutoDecided && (
-              <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
-                已自动批准
-              </span>
-            )}
           </div>
 
           {!compact && approval.description && (
-            <p className="mb-2 text-sm text-muted-foreground line-clamp-3 whitespace-pre-wrap">
+            <p className="mb-3 text-sm text-muted-foreground line-clamp-4 whitespace-pre-wrap leading-relaxed">
               {approval.description}
             </p>
           )}
 
-          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5">
-              <ShieldCheck className="h-3 w-3" />
-              {approval.source}
-            </span>
-            <span className={cn("flex items-center gap-1 rounded-md px-1.5 py-0.5", urgency.bg)}>
-              <UrgencyIcon className="h-3 w-3" />
-              {approval.urgency === "auto_decidable"
-                ? "可自动决定"
-                : approval.urgency === "normal"
-                ? "普通"
-                : approval.urgency === "high"
-                ? "紧急"
-                : "严重"}
-            </span>
+          <div className="flex flex-wrap gap-2 text-xs">
             <span className={cn("flex items-center gap-1 rounded-md px-1.5 py-0.5", typeConf.color)}>
               <TypeIcon className="h-3 w-3" />
               {typeConf.label}
             </span>
           </div>
 
-          {/* ── 已处理的结果展示 ── */}
-          {!isPending && !compact && (
+          {/* 已处理结果 */}
+          {!isPending && !compact && resolvedResult && (
             <div className="mt-2 rounded-lg bg-surface p-2 text-xs text-muted-foreground">
-              {resolvedChoice && (
-                <span>选择: <span className="text-foreground font-medium">{resolvedChoice}</span></span>
-              )}
-              {resolvedAnswer && (
-                <span>回答: <span className="text-foreground font-medium">{resolvedAnswer}</span></span>
-              )}
-              {!resolvedChoice && !resolvedAnswer && approval.status === "approved" && (
-                <span className="text-emerald-500">已通过</span>
-              )}
-              {approval.status === "rejected" && (
-                <span className="text-red-400">已拒绝</span>
-              )}
+              {resolvedChoice && <span>选择: <span className="text-foreground font-medium">{resolvedChoice}</span></span>}
+              {resolvedAnswer && <span>回答: <span className="text-foreground font-medium">{resolvedAnswer}</span></span>}
+              {!resolvedChoice && !resolvedAnswer && approval.status === "approved" && <span className="text-emerald-500">已通过</span>}
+              {approval.status === "rejected" && <span className="text-red-400">已拒绝</span>}
             </div>
-          )}
-
-          {/* 上下文数据预览 */}
-          {!compact && approval.context_data && (
-            <pre className="mt-2 max-h-24 overflow-auto rounded-lg bg-surface p-2 font-mono text-[11px] text-muted-foreground">
-              {JSON.stringify(approval.context_data, null, 2)}
-            </pre>
           )}
         </div>
 
-        {/* 右侧操作 */}
+        {/* 右侧操作区 */}
         {isPending && onResolve && (
-          <div className="flex shrink-0 flex-col gap-2">
-            {/* ── choice 类型：选项列表 ── */}
+          <div className="flex shrink-0 flex-col gap-2 min-w-[180px]">
+            {/* choice 类型：选项列表 */}
             {typeKey === "choice" && options.length > 0 && (
-              <div className="flex flex-col gap-1 mb-2">
+              <div className="flex flex-col gap-1">
                 {options.map((opt, i) => (
                   <label
                     key={i}
                     className={cn(
-                      "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm cursor-pointer transition-colors",
+                      "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors",
                       selectedOption === i
-                        ? "border-brand bg-brand/10 text-brand"
-                        : "border-border hover:border-brand/40"
+                        ? "border-brand bg-brand/10 text-brand font-medium"
+                        : "border-border hover:border-brand/40 text-foreground"
                     )}
                   >
                     <input
@@ -185,50 +157,85 @@ export default function ApprovalCard({
                       name={`choice-${approval.id}`}
                       checked={selectedOption === i}
                       onChange={() => setSelectedOption(i)}
-                      className="accent-brand"
+                      className="accent-brand shrink-0"
                     />
-                    {opt.label}
+                    <span className="truncate">{opt.label}</span>
                   </label>
                 ))}
               </div>
             )}
 
-            {/* ── input/question 类型：输入框 ── */}
-            {(typeKey === "input" || typeKey === "question") && (
+            {/* input 类型：文本框 */}
+            {typeKey === "input" && (
+              <textarea
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder="输入你的回答…"
+                rows={3}
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand focus:outline-none resize-none"
+              />
+            )}
+
+            {/* question 类型：文本框（更大） */}
+            {typeKey === "question" && (
               <textarea
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 placeholder="请输入回答…"
-                rows={2}
-                className="mb-2 w-48 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand focus:outline-none"
+                rows={3}
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand focus:outline-none resize-none"
               />
             )}
 
-            {/* ── 通用按钮 ── */}
+            {/* 操作按钮 */}
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-emerald-400/40 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-600"
-                onClick={() => handleResolve("approved")}
-              >
-                <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                {typeKey === "choice" ? "选择" : typeKey === "input" || typeKey === "question" ? "提交" : "通过"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => handleResolve("rejected")}
-              >
-                <XCircle className="mr-1 h-3.5 w-3.5" />
-                拒绝
-              </Button>
+              {(typeKey === "input" || typeKey === "question") && (
+                <Button
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handleResolve("approved")}
+                >
+                  <Send className="mr-1 h-3.5 w-3.5" />
+                  提交
+                </Button>
+              )}
+              {typeKey === "choice" && options.length > 0 && (
+                <Button
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handleResolve("approved")}
+                >
+                  <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                  确认选择
+                </Button>
+              )}
+              {typeKey === "confirm" && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 border-emerald-400/40 text-emerald-500 hover:bg-emerald-500/10"
+                    onClick={() => handleResolve("approved")}
+                  >
+                    <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                    通过
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 border-destructive/40 text-destructive hover:bg-destructive/10"
+                    onClick={() => handleResolve("rejected")}
+                  >
+                    <XCircle className="mr-1 h-3.5 w-3.5" />
+                    拒绝
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         )}
 
-        {/* 已处理的时间 */}
+        {/* 已处理时间 */}
         {!isPending && approval.resolved_at && (
           <span className="shrink-0 text-xs text-muted-foreground">
             {new Date(approval.resolved_at).toLocaleString("zh-CN")}

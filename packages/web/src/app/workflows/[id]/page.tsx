@@ -51,6 +51,7 @@ export default function WorkflowDetailPage() {
   const [transitioning, setTransitioning] = useState(false);
 
   const { workflow, loading, error, refetch } = useWorkflow(id);
+  const { update, remove } = useWorkflowActions();
 
   const startEditing = useCallback(() => {
     if (!workflow) return;

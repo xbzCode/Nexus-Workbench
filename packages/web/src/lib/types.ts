@@ -148,6 +148,7 @@ export interface SSEEvent {
   data: Record<string, unknown>;
   source?: string;
   task_id?: string | null;
+  timestamp?: string;
 }
 
 // ── Match ──
@@ -163,6 +164,7 @@ export interface MatchResult {
   confidence?: number | null;
   dag?: DAGDefinition | null;
   reasoning?: string | null;
+  available_workflow_names?: string[] | null;
 }
 
 // ── Describe (自然语言创建) ──
