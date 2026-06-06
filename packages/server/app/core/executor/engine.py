@@ -37,6 +37,13 @@ class DAGExecutionError(Exception):
     pass
 
 
+class DAGExecutionPaused(Exception):
+    """DAG 执行暂停（等待审批超时，用户需手动恢复）"""
+    def __init__(self, message: str = "审批超时，任务已暂停", approval_id=None):
+        super().__init__(message)
+        self.approval_id = approval_id
+
+
 async def execute_dag(
     dag: DAGDefinition,
     event_bus: EventBus,
@@ -404,6 +411,8 @@ async def _execute_node_via_adapter(
             )
             # 获取审批结果
             result = await _wait_for_approval_db(approval_id, bg_session_factory)
+            if result is None:
+                raise DAGExecutionPaused("审批超时，任务已暂停", approval_id=approval_id)
             user_answer = ""
             if result:
                 user_answer = result.get("answer", result.get("choice", ""))
@@ -430,6 +439,8 @@ async def _execute_node_via_adapter(
                 event_bus=event_bus,
             )
             result = await _wait_for_approval_db(approval_id, bg_session_factory)
+            if result is None:
+                raise DAGExecutionPaused("审批超时，任务已暂停", approval_id=approval_id)
             approved = result and result.get("approved", True)
             if approved:
                 await adapter.resume_session(session_id, "用户已确认，请继续执行")
@@ -600,7 +611,7 @@ async def _wait_for_approval_db(
     bg_session_factory=None,
     timeout: float = 600.0,
 ) -> dict | None:
-    """轮询 DB 等待审批结果（超时自动批准）"""
+    """轮询 DB 等待审批结果（超时暂停任务，等待用户手动恢复）"""
     import time
     start = time.time()
 
@@ -617,17 +628,17 @@ async def _wait_for_approval_db(
 
         await asyncio.sleep(1)
 
-    # 超时自动批准
+    # 超时暂停 — 不自动通过，等待用户手动恢复
     if bg_session_factory:
         async with bg_session_factory() as session:
             from app.models.approval import Approval
             approval = await session.get(Approval, approval_id)
-            if approval:
-                approval.status = "approved"
-                approval.result = {"approved": True, "auto": True, "reason": "timeout"}
+            if approval and approval.status == "pending":
+                approval.status = "paused"
+                approval.result = {"paused": True, "reason": "timeout", "message": "等待用户响应超时，任务已暂停"}
                 await session.commit()
 
-    return {"approved": True, "auto": True}
+    return None
 
 
 async def _update_task_status(

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import settings
 from app.core.events.bus import Event, EventBus, get_event_bus
-from app.core.executor.engine import execute_dag
+from app.core.executor.engine import execute_dag, DAGExecutionPaused
 from app.models.task import Task, TaskStep
 from app.schemas.workflow import DAGDefinition, NodeInstance
 from app.schemas.task import TaskCreate
@@ -153,6 +153,13 @@ async def start_task(
                     bg_task.status = "completed"
                     bg_task.completed_at = datetime.now(timezone.utc)
                     await bg_session.commit()
+            except DAGExecutionPaused as e:
+                bg_task = await bg_session.get(Task, task_id)
+                if bg_task and bg_task.status == "running":
+                    bg_task.status = "paused"
+                    bg_task.output_data = {"paused": True, "reason": str(e)}
+                    await bg_session.commit()
+                # 保留在 _running_tasks 中以便恢复
             except Exception as e:
                 bg_task = await bg_session.get(Task, task_id)
                 if bg_task and bg_task.status == "running":

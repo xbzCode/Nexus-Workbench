@@ -38,9 +38,10 @@ async def assemble(user_input: str, session: AsyncSession) -> MatchResult | None
     logger.info(f"[Assembly] 找到 {len(published)} 个已发布节点: {[n.name for n in published]}")
 
     # 2. 构建节点摘要（精简，避免 token 浪费）
-    #    同时建立 name → UUID 映射，供后续 DAG 组装使用
+    #    同时建立 name → UUID / display_name 映射，供后续 DAG 组装使用
     node_summaries = []
     name_to_uuid: dict[str, str] = {}
+    name_to_display_name: dict[str, str] = {}
     for n in published:
         summary = {"name": n.name, "display_name": n.display_name}
         if n.description:
@@ -49,9 +50,10 @@ async def assemble(user_input: str, session: AsyncSession) -> MatchResult | None
             summary["category"] = n.category
         node_summaries.append(summary)
         name_to_uuid[n.name] = str(n.id)
+        name_to_display_name[n.name] = n.display_name or n.name
 
     # 3. 调用 LLM 语义匹配 + 组装
-    dag = await _llm_assemble(user_input, node_summaries, name_to_uuid)
+    dag = await _llm_assemble(user_input, node_summaries, name_to_uuid, name_to_display_name)
     if dag is not None:
         return dag
 
@@ -59,7 +61,7 @@ async def assemble(user_input: str, session: AsyncSession) -> MatchResult | None
 
 
 async def _llm_assemble(
-    user_input: str, node_summaries: list[dict], name_to_uuid: dict[str, str]
+    user_input: str, node_summaries: list[dict], name_to_uuid: dict[str, str], name_to_display_name: dict[str, str]
 ) -> MatchResult | None:
     """调用 LLM 从节点列表中选择并编排 DAG
 
@@ -148,6 +150,7 @@ async def _llm_assemble(
                 NodeInstance(
                     id=n["id"],
                     definition_id=name_to_uuid[def_name],
+                    display_name=name_to_display_name.get(def_name, def_name),
                     config=n.get("config", {}),
                 )
             )

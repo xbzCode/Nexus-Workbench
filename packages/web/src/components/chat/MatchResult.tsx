@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import type { MatchResult } from "@/lib/types";
 import {
   Workflow, Cpu, ArrowRight, Loader2, Sparkles,
-  Network, Tag,
+  Network, Tag, RotateCcw,
 } from "lucide-react";
 
 const staggerItems = {
@@ -22,6 +22,10 @@ const itemFade = {
 
 /** Clean up a definition_id / node name for display */
 function cleanLabel(raw: string): string {
+  // UUID-like: show truncated version
+  if (/^[0-9a-fA-F]{8}-/.test(raw) || /^[0-9a-fA-F]{10,}$/.test(raw)) {
+    return raw.length > 12 ? raw.slice(0, 8) + "..." : raw;
+  }
   return raw
     .replace(/[_-]/g, " ")
     .replace(/\b\w/g, c => c.toUpperCase())
@@ -32,6 +36,7 @@ interface MatchResultCardProps {
   result: MatchResult;
   onConfirm: () => void;
   onCancel: () => void;
+  onRetry?: () => void;
   loading?: boolean;
 }
 
@@ -39,6 +44,7 @@ export default function MatchResultCard({
   result,
   onConfirm,
   onCancel,
+  onRetry,
   loading,
 }: MatchResultCardProps) {
   const isWorkflow = result.mode === "matched";
@@ -176,6 +182,16 @@ export default function MatchResultCard({
         >
           Cancel
         </button>
+        {onRetry && (
+          <button
+            className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-brand hover:bg-brand/10"
+            onClick={onRetry}
+            disabled={loading}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Retry
+          </button>
+        )}
         <motion.button
           className={cn(
             "flex items-center gap-1.5 rounded-lg px-5 py-2 text-sm font-medium transition-colors",

@@ -30,18 +30,19 @@ async def _enrich_match_dag(result: MatchResult, session: AsyncSession) -> None:
     if not def_ids:
         return
 
-    name_map: dict[str, str] = {}
+    # definition_id 是 NodeDefinition 的 UUID 主键，用 id 字段匹配
+    id_map: dict[str, str] = {}
     db_result = await session.execute(
-        select(NodeDefinition.name, NodeDefinition.display_name).where(
-            NodeDefinition.name.in_(def_ids)
+        select(NodeDefinition.id, NodeDefinition.display_name).where(
+            NodeDefinition.id.in_(def_ids)  # type: ignore[arg-type]
         )
     )
-    for name, display_name in db_result.all():
-        name_map[name] = display_name
+    for node_id, display_name in db_result.all():
+        id_map[str(node_id)] = display_name
 
     for node in result.dag.nodes:
-        if node.definition_id and node.definition_id in name_map:
-            node.display_name = name_map[node.definition_id]
+        if node.definition_id and node.definition_id in id_map:
+            node.display_name = id_map[node.definition_id]
 
 
 @router.post("")

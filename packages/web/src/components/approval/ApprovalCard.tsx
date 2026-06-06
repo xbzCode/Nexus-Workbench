@@ -19,7 +19,7 @@ import {
   HelpCircle,
   Send,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 const URGENCY_STYLE: Record<string, { bg: string; icon: React.ElementType }> = {
   auto_decidable: { bg: "bg-emerald-500/10 text-emerald-400", icon: Zap },
@@ -57,6 +57,16 @@ export default function ApprovalCard({
 
   const [selectedOption, setSelectedOption] = useState<number>(0);
   const [inputValue, setInputValue] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const descRef = useRef<HTMLParagraphElement>(null);
+  const [overflows, setOverflows] = useState(false);
+
+  // Check if description overflows
+  useEffect(() => {
+    if (descRef.current) {
+      setOverflows(descRef.current.scrollHeight > descRef.current.clientHeight);
+    }
+  }, [approval.description]);
 
   const options = (approval.options as Array<{ label: string; value: string }> | null) ?? [];
   const resolvedResult = approval.result as Record<string, unknown> | null;
@@ -97,9 +107,25 @@ export default function ApprovalCard({
           </div>
 
           {!compact && approval.description && (
-            <p className="mb-3 text-sm text-muted-foreground line-clamp-4 whitespace-pre-wrap leading-relaxed">
-              {approval.description}
-            </p>
+            <div className="mb-3">
+              <p
+                ref={descRef}
+                className={cn(
+                  "text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed",
+                  !expanded && "line-clamp-6"
+                )}
+              >
+                {approval.description}
+              </p>
+              {overflows && (
+                <button
+                  className="mt-1 text-xs font-medium text-brand/70 hover:text-brand transition-colors"
+                  onClick={() => setExpanded(!expanded)}
+                >
+                  {expanded ? "收起" : "展开全部"}
+                </button>
+              )}
+            </div>
           )}
 
           <div className="flex flex-wrap gap-2 text-xs">
@@ -125,7 +151,7 @@ export default function ApprovalCard({
 
         {/* Right actions */}
         {isPending && onResolve && (
-          <div className="flex shrink-0 flex-col gap-2 min-w-[180px]">
+          <div className="flex shrink-0 flex-col gap-2 min-w-[140px]">
             {/* Choice options */}
             {typeKey === "choice" && options.length > 0 && (
               <div className="flex flex-col gap-1">
