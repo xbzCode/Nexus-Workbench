@@ -12,13 +12,19 @@ from app.schemas.approval import ApprovalCreate, ApprovalResolve
 
 
 async def list_approvals(
-    session: AsyncSession, user_id: uuid.UUID, urgency: str | None = None, task_id: uuid.UUID | None = None
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    urgency: str | None = None,
+    task_id: uuid.UUID | None = None,
+    status: str | None = None,
 ) -> list[Approval]:
     stmt = select(Approval).where(Approval.user_id == user_id).order_by(Approval.created_at.desc())
     if urgency:
         stmt = stmt.where(Approval.urgency == urgency)
     if task_id:
         stmt = stmt.where(Approval.task_id == task_id)
+    if status:
+        stmt = stmt.where(Approval.status == status)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 

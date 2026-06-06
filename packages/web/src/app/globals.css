@@ -193,6 +193,17 @@ body {
   background: var(--color-muted-foreground);
 }
 
+/* ── Scrollbar hidden (保留滚动行为，仅隐藏滚动条) ── */
+.scrollbar-none {
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* IE / 旧 Edge */
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;                /* Chrome / Safari / 新 Edge */
+  width: 0;
+  height: 0;
+}
+
 /* ── Selection ── */
 ::selection {
   background-color: var(--color-brand-muted);

@@ -2,6 +2,7 @@
 
 import os
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,20 +17,24 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _to_response(snap) -> SnapshotResponse:
+    """ORM → Pydantic schema"""
+    return SnapshotResponse.model_validate(snap)
+
+
 @router.get("")
 async def list_snapshots(task_id: str, session: AsyncSession = Depends(get_session)):
-    from uuid import UUID
-    items = await snapshot_service.list_snapshots(session, UUID(task_id))
-    return APIResponse(data=items)
+    items = await snapshot_service.list_snapshots(session, uuid.UUID(task_id))
+    data = [_to_response(s) for s in items]
+    return APIResponse(data=data)
 
 
 @router.get("/{snapshot_id}")
 async def get_snapshot(snapshot_id: str, session: AsyncSession = Depends(get_session)):
-    from uuid import UUID
-    snap = await snapshot_service.get_snapshot(session, UUID(snapshot_id))
+    snap = await snapshot_service.get_snapshot(session, uuid.UUID(snapshot_id))
     if not snap:
         raise HTTPException(404, "Snapshot not found")
-    return APIResponse(data=snap)
+    return APIResponse(data=_to_response(snap))
 
 
 @router.post("", status_code=201)
@@ -44,7 +49,7 @@ async def create_snapshot(body: SnapshotCreate, session: AsyncSession = Depends(
         untracked_files=body.untracked_files,
         environment=body.environment,
     )
-    return APIResponse(data=snap)
+    return APIResponse(data=_to_response(snap))
 
 
 @router.post("/{snapshot_id}/rollback")
@@ -53,8 +58,7 @@ async def rollback_snapshot(snapshot_id: str, session: AsyncSession = Depends(ge
 
     执行 git checkout 恢复工作目录到该快照的 commit_hash 状态。
     """
-    from uuid import UUID
-    snap = await snapshot_service.get_snapshot(session, UUID(snapshot_id))
+    snap = await snapshot_service.get_snapshot(session, uuid.UUID(snapshot_id))
     if not snap:
         raise HTTPException(404, "Snapshot not found")
 
@@ -87,4 +91,4 @@ async def rollback_snapshot(snapshot_id: str, session: AsyncSession = Depends(ge
     except FileNotFoundError:
         raise HTTPException(500, "git 命令不可用，无法执行回滚")
 
-    return APIResponse(data=snap)
+    return APIResponse(data=_to_response(snap))

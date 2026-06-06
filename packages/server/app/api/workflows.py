@@ -1,5 +1,7 @@
 """工作流 CRUD API"""
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,11 @@ from app.schemas.workflow import WorkflowCreate, WorkflowResponse, WorkflowUpdat
 from app.services import workflow_service
 
 router = APIRouter()
+
+
+def _to_response(wf) -> WorkflowResponse:
+    """ORM → Pydantic schema"""
+    return WorkflowResponse.model_validate(wf)
 
 
 async def _enrich_workflow_dag(wf_response: WorkflowResponse, session: AsyncSession) -> None:
@@ -42,19 +49,22 @@ async def _enrich_workflow_dag(wf_response: WorkflowResponse, session: AsyncSess
 @router.get("")
 async def list_workflows(session: AsyncSession = Depends(get_session)):
     items = await workflow_service.list_workflows(session, TEMP_USER_ID)
+    data = []
     for item in items:
-        await _enrich_workflow_dag(item, session)
-    return APIResponse(data=items)
+        resp = _to_response(item)
+        await _enrich_workflow_dag(resp, session)
+        data.append(resp)
+    return APIResponse(data=data)
 
 
 @router.get("/{workflow_id}")
 async def get_workflow(workflow_id: str, session: AsyncSession = Depends(get_session)):
-    from uuid import UUID
-    wf = await workflow_service.get_workflow(session, UUID(workflow_id))
+    wf = await workflow_service.get_workflow(session, uuid.UUID(workflow_id))
     if not wf:
         raise HTTPException(404, "Workflow not found")
-    await _enrich_workflow_dag(wf, session)
-    return APIResponse(data=wf)
+    resp = _to_response(wf)
+    await _enrich_workflow_dag(resp, session)
+    return APIResponse(data=resp)
 
 
 @router.post("", status_code=201)
@@ -63,30 +73,30 @@ async def create_workflow(body: WorkflowCreate, session: AsyncSession = Depends(
         wf = await workflow_service.create_workflow(session, TEMP_USER_ID, body)
     except DAGValidationError as e:
         raise HTTPException(status_code=400, detail=e.errors)
-    await _enrich_workflow_dag(wf, session)
-    return APIResponse(data=wf)
+    resp = _to_response(wf)
+    await _enrich_workflow_dag(resp, session)
+    return APIResponse(data=resp)
 
 
 @router.put("/{workflow_id}")
 async def update_workflow(
     workflow_id: str, body: WorkflowUpdate, session: AsyncSession = Depends(get_session)
 ):
-    from uuid import UUID
-    wf = await workflow_service.get_workflow(session, UUID(workflow_id))
+    wf = await workflow_service.get_workflow(session, uuid.UUID(workflow_id))
     if not wf:
         raise HTTPException(404, "Workflow not found")
     try:
         updated = await workflow_service.update_workflow(session, wf, body)
     except DAGValidationError as e:
         raise HTTPException(status_code=400, detail=e.errors)
-    await _enrich_workflow_dag(updated, session)
-    return APIResponse(data=updated)
+    resp = _to_response(updated)
+    await _enrich_workflow_dag(resp, session)
+    return APIResponse(data=resp)
 
 
 @router.delete("/{workflow_id}")
 async def delete_workflow(workflow_id: str, session: AsyncSession = Depends(get_session)):
-    from uuid import UUID
-    wf = await workflow_service.get_workflow(session, UUID(workflow_id))
+    wf = await workflow_service.get_workflow(session, uuid.UUID(workflow_id))
     if not wf:
         raise HTTPException(404, "Workflow not found")
     await workflow_service.delete_workflow(session, wf)

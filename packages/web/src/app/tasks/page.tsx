@@ -70,6 +70,11 @@ function cleanLabel(raw: string): string {
     .trim();
 }
 
+/** Detect UUIDs (with or without dashes). If input is a UUID it's not a display name. */
+function isUuidLike(raw: string): boolean {
+  return /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(raw);
+}
+
 function getPipeline(task: Task): PipelineNode[] {
   // 优先使用 API 联查填充的 task.dag，fallback 到 context.dag（兼容旧数据）
   const dag = (task.dag ?? task.context?.dag) as { nodes: NodeInstance[]; edges: EdgeDef[] } | undefined;
@@ -134,8 +139,14 @@ function getPipeline(task: Task): PipelineNode[] {
 
   return sorted.map(id => {
     const node = nodeMap.get(id);
-    // 优先使用 display_name，其次 cleanLabel(definition_id)，最后用 id
-    const rawLabel = node?.display_name || (node?.definition_id ? cleanLabel(node.definition_id) : id);
+    // 优先 display_name；其次 definition_id（但跳过 UUID）；最后 node.id
+    let rawLabel = node?.display_name;
+    if (!rawLabel && node?.definition_id && !isUuidLike(node.definition_id)) {
+      rawLabel = cleanLabel(node.definition_id);
+    }
+    if (!rawLabel || isUuidLike(rawLabel)) {
+      rawLabel = "Unnamed Step";
+    }
     return {
       id,
       label: rawLabel,
@@ -214,7 +225,7 @@ const NODE_STATUS_STYLE: Record<string, string> = {
 
 function MiniPipeline({ pipeline }: { pipeline: PipelineNode[] }) {
   return (
-    <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-thin">
+    <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-none">
       {pipeline.map((node, i) => (
         <span key={node.id} className="flex items-center gap-0.5 shrink-0">
           <span

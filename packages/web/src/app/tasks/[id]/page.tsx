@@ -189,7 +189,7 @@ export default function TaskDetailPage() {
 
         {/* DAG pipeline bar */}
         {dag && dag.nodes.length > 0 && (
-          <div className="mt-3 flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin">
+          <div className="mt-3 flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none">
             <Activity className="h-3 w-3 text-muted-foreground/50 shrink-0 mr-1" />
             {dag.nodes.map((node, i) => {
               const ns = stepStatusMap[node.id] || "pending";
