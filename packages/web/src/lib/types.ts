@@ -14,6 +14,7 @@ export interface APIResponse<T> {
 export interface NodeInstance {
   id: string;
   definition_id: string;
+  display_name?: string;
   position: { x: number; y: number };
   config: Record<string, unknown>;
   hooks: Record<string, unknown>[];
@@ -75,9 +76,11 @@ export interface Task {
   title: string;
   intent?: string | null;
   matched_workflow_id?: string | null;
+  workflow_name?: string | null;
   status: string;
   execution_mode: string;
   context?: Record<string, unknown> | null;
+  dag?: Record<string, unknown> | null;
   input_data?: Record<string, unknown> | null;
   output_data?: Record<string, unknown> | null;
   started_at?: string | null;

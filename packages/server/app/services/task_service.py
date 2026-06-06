@@ -42,8 +42,8 @@ async def create_task(session: AsyncSession, user_id: uuid.UUID, data: TaskCreat
     else:
         execution_mode = "bare_agent"
 
-    # 动态组装的 DAG 存入 context
-    context = None
+    # 构建 context（dynamic_assembly 的 DAG 存入 context 供启动时读取）
+    context: dict | None = None
     if data.dag:
         context = {"dag": data.dag.model_dump()}
 
@@ -90,8 +90,6 @@ async def start_task(
 
     task.status = "running"
     task.started_at = datetime.now(timezone.utc)
-    await session.commit()
-    await session.refresh(task)
 
     # 获取 DAG
     if workflow_dag:
@@ -116,6 +114,10 @@ async def start_task(
     else:
         # 其他无 DAG 的情况
         dag = DAGDefinition(nodes=[], edges=[])
+
+    # 提交状态更新
+    await session.commit()
+    await session.refresh(task)
 
     # 在后台执行 DAG
     event_bus = get_event_bus()

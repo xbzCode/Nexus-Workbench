@@ -1,11 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import ApprovalCard from "@/components/approval/ApprovalCard";
 import { useApprovals } from "@/hooks/useApproval";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Clock, CheckCircle2, Loader2, ExternalLink } from "lucide-react";
+import { Clock, CheckCircle2, Loader2, ExternalLink, Bell } from "lucide-react";
 
 export default function ApprovalsPage() {
   const { pending, resolved, loading, error, resolve } = useApprovals();
@@ -15,7 +14,7 @@ export default function ApprovalsPage() {
     return (
       <div className="flex items-center justify-center py-20 text-muted-foreground">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-        加载中…
+        Loading...
       </div>
     );
   }
@@ -31,82 +30,76 @@ export default function ApprovalsPage() {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="shrink-0 border-b border-border bg-background px-6 py-4">
-        <h1 className="text-lg font-semibold text-foreground">待办审批</h1>
+      <div className="shrink-0 border-b border-border bg-background/80 backdrop-blur-sm px-6 py-4">
+        <h1 className="text-lg font-semibold text-foreground">Approvals</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          审批或拒绝任务执行中的关键步骤
+          Approve or reject critical steps during task execution
         </p>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto p-6 space-y-8 max-w-3xl mx-auto w-full">
         {/* Pending */}
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
+        <section>
+          <div className="flex items-center gap-2 mb-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber/10">
               <Clock className="h-4 w-4 text-amber" />
-              <CardTitle className="text-base">待处理 ({pending.length})</CardTitle>
             </div>
-          </CardHeader>
-          <CardContent>
-            {pending.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                暂无待处理审批
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {pending.map((a) => (
-                  <div key={a.id} className="relative">
-                    <ApprovalCard
-                      approval={a}
-                      onResolve={resolve}
-                    />
-                    {/* 跳转到任务详情 */}
-                    <button
-                      className="absolute right-4 top-4 flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-brand hover:bg-brand/10 transition-colors"
-                      onClick={() => router.push(`/tasks/${a.task_id}`)}
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      查看任务
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Pending ({pending.length})</h2>
+              <p className="text-[11px] text-muted-foreground">Awaiting your response</p>
+            </div>
+          </div>
+
+          {pending.length === 0 ? (
+            <div className="rounded-xl border border-border bg-card p-8 text-center">
+              <Bell className="mx-auto mb-2 h-6 w-6 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">No pending approvals</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {pending.map((a) => (
+                <div key={a.id} className="relative">
+                  <ApprovalCard approval={a} onResolve={resolve} />
+                  <button
+                    className="absolute right-4 top-4 flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-brand hover:bg-brand/10 transition-colors"
+                    onClick={() => router.push(`/tasks/${a.task_id}`)}
+                  >
+                    <ExternalLink className="h-3 w-3" />View Task
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         {/* Resolved */}
         {resolved.length > 0 && (
-          <>
-            <Separator />
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  <CardTitle className="text-base">
-                    已处理 ({resolved.length})
-                  </CardTitle>
+          <section>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
+                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Resolved ({resolved.length})</h2>
+                <p className="text-[11px] text-muted-foreground">Previously handled</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {resolved.map((a) => (
+                <div key={a.id} className="relative">
+                  <ApprovalCard approval={a} compact />
+                  <button
+                    className="absolute right-4 top-3 flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-brand hover:bg-brand/10 transition-colors"
+                    onClick={() => router.push(`/tasks/${a.task_id}`)}
+                  >
+                    <ExternalLink className="h-3 w-3" />Task
+                  </button>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {resolved.map((a) => (
-                    <div key={a.id} className="relative">
-                      <ApprovalCard approval={a} compact />
-                      <button
-                        className="absolute right-4 top-3 flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-brand hover:bg-brand/10 transition-colors"
-                        onClick={() => router.push(`/tasks/${a.task_id}`)}
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                        任务
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </>
+              ))}
+            </div>
+          </section>
         )}
       </div>
     </div>

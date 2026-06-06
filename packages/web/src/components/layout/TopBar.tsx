@@ -35,19 +35,19 @@ export default function TopBar() {
   };
 
   return (
-    <header className="flex h-12 items-center border-b border-topbar-border bg-topbar px-4 shrink-0">
+    <header className="flex h-12 items-center border-b border-topbar-border bg-topbar/90 backdrop-blur-md px-4 shrink-0">
       {/* Logo */}
-      <Link href="/" className="flex items-center gap-2 mr-6 group">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-brand text-brand-foreground transition-transform group-hover:scale-105">
+      <Link href="/" className="flex items-center gap-2 mr-8 group">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand text-brand-foreground transition-all duration-300 group-hover:scale-105 group-hover:shadow-[0_0_12px_color-mix(in_srgb,var(--color-brand)_40%,transparent)]">
           <Workflow className="h-3.5 w-3.5" />
         </div>
-        <span className="text-sm font-bold tracking-tight text-topbar-foreground">
-          AgentFlow
+        <span className="text-sm font-semibold tracking-tight text-topbar-foreground">
+          Nexus
         </span>
       </Link>
 
       {/* Navigation */}
-      <nav className="flex items-center gap-1">
+      <nav className="flex items-center gap-0.5">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const active =
@@ -60,14 +60,17 @@ export default function TopBar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium transition-all",
+                "relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200",
                 active
                   ? "bg-topbar-active-bg text-topbar-active"
-                  : "text-topbar-muted hover:text-topbar-foreground hover:bg-surface-hover"
+                  : "text-topbar-muted hover:text-topbar-foreground hover:bg-surface-hover/50"
               )}
             >
               <Icon className="h-3.5 w-3.5" />
               {item.label}
+              {active && (
+                <span className="absolute bottom-0 left-1/2 -translate-x-1/2 h-[2px] w-5 rounded-full bg-brand" />
+              )}
             </Link>
           );
         })}
@@ -86,7 +89,7 @@ export default function TopBar() {
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-topbar-muted hover:text-topbar-foreground hover:bg-surface-hover transition-all hover:rotate-12"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-topbar-muted hover:text-topbar-foreground hover:bg-surface-hover/50 transition-all duration-200"
           title={theme === "dark" ? "切换亮色模式" : "切换暗色模式"}
         >
           {theme === "dark" ? (
@@ -97,7 +100,7 @@ export default function TopBar() {
         </button>
 
         {/* User avatar */}
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-muted text-brand text-xs font-semibold cursor-pointer hover:opacity-80 transition-opacity">
+        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-brand/20 to-brand-muted text-brand text-xs font-semibold cursor-pointer hover:from-brand/30 transition-colors ring-1 ring-brand/20">
           U
         </div>
       </div>
@@ -137,15 +140,15 @@ function TaskCapsule() {
   return (
     <div className="flex items-center gap-1.5">
       {running > 0 && (
-        <Link href="/tasks" className="flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] hover:bg-surface-hover transition-colors">
-          <span className="h-1.5 w-1.5 rounded-full bg-brand animate-pulse-soft" />
+        <Link href="/tasks" className="flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] border border-border/50 hover:bg-surface-hover transition-all duration-200">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_color-mix(in_srgb,var(--color-brand)_50%,transparent)]" />
           <span className="text-muted-foreground">Running</span>
           <span className="font-semibold text-foreground">{running}</span>
         </Link>
       )}
       {pendingApprovals > 0 && (
-        <Link href="/approvals" className="flex items-center gap-1.5 rounded-full bg-amber-muted px-2.5 py-1 text-[11px] hover:opacity-80 transition-opacity">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber" />
+        <Link href="/approvals" className="flex items-center gap-1.5 rounded-full bg-amber-muted/50 px-2.5 py-1 text-[11px] border border-amber/20 hover:bg-amber-muted transition-all duration-200">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber shadow-[0_0_6px_color-mix(in_srgb,var(--color-amber)_40%,transparent)]" />
           <span className="text-muted-foreground">Approvals</span>
           <span className="font-semibold text-amber">{pendingApprovals}</span>
         </Link>
@@ -176,11 +179,11 @@ function NotificationBell() {
   return (
     <Link
       href="/approvals"
-      className="relative flex h-8 w-8 items-center justify-center rounded-md text-topbar-muted hover:text-topbar-foreground hover:bg-surface-hover transition-colors"
+      className="relative flex h-8 w-8 items-center justify-center rounded-lg text-topbar-muted hover:text-topbar-foreground hover:bg-surface-hover/50 transition-all duration-200"
     >
       <Bell className="h-4 w-4" />
       {count > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground px-1">
+        <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white px-1 shadow-[0_0_6px_rgba(239,68,68,0.4)]">
           {count > 99 ? "99+" : count}
         </span>
       )}

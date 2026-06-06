@@ -4,9 +4,11 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TEMP_USER_ID, get_session
+from app.models.node import NodeDefinition
 from app.schemas.base import APIResponse
 from app.schemas.node import NodeDefResponse
 from app.schemas.workflow import DAGDefinition, WorkflowResponse
@@ -51,10 +53,38 @@ class ConfirmWorkflowRequest(BaseModel):
     dag: DAGDefinition | None = None
 
 
+# ── Helpers ──
+
+
+async def _enrich_dag_display_names(
+    dag: DAGDefinition | None, session: AsyncSession
+) -> None:
+    """为 DAG 中的节点填充 display_name（从 NodeDefinition 表联查）"""
+    if not dag or not dag.nodes:
+        return
+
+    def_ids = {n.definition_id for n in dag.nodes if n.definition_id}
+    if not def_ids:
+        return
+
+    name_map: dict[str, str] = {}
+    result = await session.execute(
+        select(NodeDefinition.name, NodeDefinition.display_name).where(
+            NodeDefinition.name.in_(def_ids)
+        )
+    )
+    for name, display_name in result.all():
+        name_map[name] = display_name
+
+    for node in dag.nodes:
+        if node.definition_id and node.definition_id in name_map:
+            node.display_name = name_map[node.definition_id]
+
+
 # ── Endpoints ──
 
 
-@router.post("/node", response_model=APIResponse[DescribeNodeResponse])
+@router.post("/node")
 async def describe_node(
     body: DescribeNodeRequest, session: AsyncSession = Depends(get_session)
 ):
@@ -65,7 +95,7 @@ async def describe_node(
     return APIResponse(data=DescribeNodeResponse(**result))
 
 
-@router.post("/node/confirm", response_model=APIResponse[NodeDefResponse], status_code=201)
+@router.post("/node/confirm", status_code=201)
 async def confirm_node(
     body: ConfirmNodeRequest, session: AsyncSession = Depends(get_session)
 ):
@@ -76,7 +106,7 @@ async def confirm_node(
     return APIResponse(data=node)
 
 
-@router.post("/workflow", response_model=APIResponse[DescribeWorkflowResponse])
+@router.post("/workflow")
 async def describe_workflow(
     body: DescribeWorkflowRequest, session: AsyncSession = Depends(get_session)
 ):
@@ -84,10 +114,12 @@ async def describe_workflow(
     result = await describe_service.describe_workflow(body.user_input, session)
     if not result:
         raise HTTPException(503, "无法生成工作流（LLM 不可用或无已发布节点）")
-    return APIResponse(data=DescribeWorkflowResponse(**result))
+    resp = DescribeWorkflowResponse(**result)
+    await _enrich_dag_display_names(resp.dag, session)
+    return APIResponse(data=resp)
 
 
-@router.post("/workflow/confirm", response_model=APIResponse[WorkflowResponse], status_code=201)
+@router.post("/workflow/confirm", status_code=201)
 async def confirm_workflow(
     body: ConfirmWorkflowRequest, session: AsyncSession = Depends(get_session)
 ):

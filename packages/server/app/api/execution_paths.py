@@ -11,7 +11,7 @@ from app.services import execution_path_service
 router = APIRouter()
 
 
-@router.get("", response_model=APIResponse[list[ExecutionPathResponse]])
+@router.get("")
 async def list_execution_paths(
     task_id: str | None = None,
     session: AsyncSession = Depends(get_session),
@@ -28,7 +28,7 @@ async def list_execution_paths(
     return APIResponse(data=items)
 
 
-@router.get("/{path_id}", response_model=APIResponse[ExecutionPathResponse])
+@router.get("/{path_id}")
 async def get_execution_path(path_id: str, session: AsyncSession = Depends(get_session)):
     from uuid import UUID
     ep = await execution_path_service.get_path(session, UUID(path_id))
@@ -37,7 +37,7 @@ async def get_execution_path(path_id: str, session: AsyncSession = Depends(get_s
     return APIResponse(data=ep)
 
 
-@router.post("/{path_id}/precipitate", response_model=APIResponse[dict])
+@router.post("/{path_id}/precipitate")
 async def precipitate(
     path_id: str, body: PrecipitateRequest, session: AsyncSession = Depends(get_session)
 ):
@@ -46,7 +46,7 @@ async def precipitate(
     return APIResponse(data=result)
 
 
-@router.post("/{path_id}/rate", response_model=APIResponse[None])
+@router.post("/{path_id}/rate")
 async def rate_path(
     path_id: str, body: RateRequest, session: AsyncSession = Depends(get_session)
 ):

@@ -22,9 +22,11 @@ class TaskResponse(BaseModel):
     title: str
     intent: str | None
     matched_workflow_id: uuid.UUID | None
+    workflow_name: str | None = None  # 联查 Workflow 表填充
     status: str
     execution_mode: str
     context: dict | None
+    dag: dict | None = None  # 联查填充：workflow→Workflow.dag, dynamic_assembly→context.dag, bare_agent→构造
     input_data: dict | None
     output_data: dict | None
     started_at: datetime | None

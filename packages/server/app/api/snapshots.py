@@ -16,14 +16,14 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("", response_model=APIResponse[list[SnapshotResponse]])
+@router.get("")
 async def list_snapshots(task_id: str, session: AsyncSession = Depends(get_session)):
     from uuid import UUID
     items = await snapshot_service.list_snapshots(session, UUID(task_id))
     return APIResponse(data=items)
 
 
-@router.get("/{snapshot_id}", response_model=APIResponse[SnapshotResponse])
+@router.get("/{snapshot_id}")
 async def get_snapshot(snapshot_id: str, session: AsyncSession = Depends(get_session)):
     from uuid import UUID
     snap = await snapshot_service.get_snapshot(session, UUID(snapshot_id))
@@ -32,7 +32,7 @@ async def get_snapshot(snapshot_id: str, session: AsyncSession = Depends(get_ses
     return APIResponse(data=snap)
 
 
-@router.post("", response_model=APIResponse[SnapshotResponse], status_code=201)
+@router.post("", status_code=201)
 async def create_snapshot(body: SnapshotCreate, session: AsyncSession = Depends(get_session)):
     snap = await snapshot_service.create_snapshot(
         session=session,
@@ -47,7 +47,7 @@ async def create_snapshot(body: SnapshotCreate, session: AsyncSession = Depends(
     return APIResponse(data=snap)
 
 
-@router.post("/{snapshot_id}/rollback", response_model=APIResponse[SnapshotResponse])
+@router.post("/{snapshot_id}/rollback")
 async def rollback_snapshot(snapshot_id: str, session: AsyncSession = Depends(get_session)):
     """回滚到指定快照
 

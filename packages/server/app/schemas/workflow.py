@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 class NodeInstance(BaseModel):
     id: str
     definition_id: str
+    display_name: str | None = None  # 联查 NodeDefinition 表填充
     position: dict = Field(default_factory=lambda: {"x": 0, "y": 0})
     config: dict = Field(default_factory=dict)
     hooks: list[dict] = Field(default_factory=list)

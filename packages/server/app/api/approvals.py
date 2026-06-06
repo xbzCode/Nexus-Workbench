@@ -13,7 +13,7 @@ from app.services import approval_service
 router = APIRouter()
 
 
-@router.get("", response_model=APIResponse[list[ApprovalResponse]])
+@router.get("")
 async def list_approvals(
     urgency: str | None = Query(None),
     task_id: uuid.UUID | None = Query(None, description="按任务ID过滤"),
@@ -23,13 +23,13 @@ async def list_approvals(
     return APIResponse(data=items)
 
 
-@router.post("", response_model=APIResponse[ApprovalResponse], status_code=201)
+@router.post("", status_code=201)
 async def create_approval(body: ApprovalCreate, session: AsyncSession = Depends(get_session)):
     approval = await approval_service.create_approval(session, TEMP_USER_ID, body)
     return APIResponse(data=approval)
 
 
-@router.get("/{approval_id}", response_model=APIResponse[ApprovalResponse])
+@router.get("/{approval_id}")
 async def get_approval(approval_id: str, session: AsyncSession = Depends(get_session)):
     from uuid import UUID
     approval = await approval_service.get_approval(session, UUID(approval_id))
@@ -38,7 +38,7 @@ async def get_approval(approval_id: str, session: AsyncSession = Depends(get_ses
     return APIResponse(data=approval)
 
 
-@router.post("/{approval_id}/resolve", response_model=APIResponse[ApprovalResponse])
+@router.post("/{approval_id}/resolve")
 async def resolve_approval(
     approval_id: str, body: ApprovalResolve, session: AsyncSession = Depends(get_session)
 ):

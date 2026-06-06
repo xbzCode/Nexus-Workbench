@@ -2,34 +2,33 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ── Light Theme (warm off-white, NOT pure white) ── */
-/* Use @theme (WITHOUT inline) so utility classes use var() references
-   and runtime CSS variable changes (dark mode toggle) actually work */
+/* ── Light Theme ── */
 @theme {
-  --color-background: #f8f7f4;
-  --color-foreground: #1a1a2e;
+  /* Core palette — warm neutral base + bronze accent */
+  --color-background: #faf8f5;
+  --color-foreground: #1c1917;
   --color-card: #ffffff;
-  --color-card-foreground: #1a1a2e;
+  --color-card-foreground: #1c1917;
   --color-popover: #ffffff;
-  --color-popover-foreground: #1a1a2e;
-  --color-primary: #6b5ce7;
+  --color-popover-foreground: #1c1917;
+  --color-primary: #c0823b;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #f0eee8;
-  --color-secondary-foreground: #2a2a40;
-  --color-muted: #f0eee8;
-  --color-muted-foreground: #787890;
-  --color-accent: #fef7e8;
+  --color-secondary: #f5f0e8;
+  --color-secondary-foreground: #292524;
+  --color-muted: #f5f0e8;
+  --color-muted-foreground: #78716c;
+  --color-accent: #fef7ed;
   --color-accent-foreground: #92400e;
   --color-destructive: #dc2626;
   --color-destructive-foreground: #ffffff;
-  --color-border: #e5e1d8;
-  --color-input: #e5e1d8;
-  --color-ring: #6b5ce7;
+  --color-border: #e7e1d8;
+  --color-input: #e7e1d8;
+  --color-ring: #c0823b;
 
-  /* Brand colors */
-  --color-brand: #6b5ce7;
+  /* Brand */
+  --color-brand: #c0823b;
   --color-brand-foreground: #ffffff;
-  --color-brand-muted: #ede9fe;
+  --color-brand-muted: #fef7ed;
   --color-violet: #7c3aed;
   --color-violet-foreground: #ffffff;
   --color-violet-muted: #ede9fe;
@@ -37,92 +36,89 @@
   --color-amber-foreground: #ffffff;
   --color-amber-muted: #fef3c7;
   --color-surface: #ffffff;
-  --color-surface-hover: #f5f3ee;
+  --color-surface-hover: #f5f0e8;
 
   /* Topbar */
   --color-topbar: #ffffff;
-  --color-topbar-border: #e5e1d8;
-  --color-topbar-foreground: #1a1a2e;
-  --color-topbar-muted: #787890;
-  --color-topbar-active: #6b5ce7;
-  --color-topbar-active-bg: #f0eee8;
+  --color-topbar-border: #e7e1d8;
+  --color-topbar-foreground: #1c1917;
+  --color-topbar-muted: #78716c;
+  --color-topbar-active: #c0823b;
+  --color-topbar-active-bg: #fef7ed;
 
-  /* Sidebar (kept for shadcn compat) */
-  --color-sidebar-background: #f0eee8;
-  --color-sidebar-foreground: #1a1a2e;
-  --color-sidebar-primary: #6b5ce7;
+  /* Sidebar */
+  --color-sidebar-background: #f5f0e8;
+  --color-sidebar-foreground: #1c1917;
+  --color-sidebar-primary: #c0823b;
   --color-sidebar-primary-foreground: #ffffff;
-  --color-sidebar-accent: #e5e1d8;
-  --color-sidebar-accent-foreground: #2a2a40;
-  --color-sidebar-border: #e5e1d8;
-  --color-sidebar-ring: #6b5ce7;
+  --color-sidebar-accent: #e7e1d8;
+  --color-sidebar-accent-foreground: #292524;
+  --color-sidebar-border: #e7e1d8;
+  --color-sidebar-ring: #c0823b;
 
-  /* ── Radii ── */
+  /* Radii */
   --radius-sm: calc(0.5rem - 2px);
   --radius-md: 0.5rem;
   --radius-lg: 0.625rem;
-  --radius-xl: calc(0.625rem + 4px);
+  --radius-xl: 0.75rem;
 
-  /* ── Animations ── */
+  /* Animations — only shadcn compat */
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
-  --animate-fade-in: fade-in 0.2s ease-out;
-  --animate-slide-up: slide-up 0.25s ease-out;
-  --animate-scale-in: scale-in 0.15s ease-out;
 }
 
-/* ── Dark Theme overrides ── */
+/* ── Dark Theme ── */
 html.dark {
-  --color-background: #0a0a12;
-  --color-foreground: #e8e8f0;
-  --color-card: #14141f;
-  --color-card-foreground: #e8e8f0;
-  --color-popover: #1a1a2a;
-  --color-popover-foreground: #e8e8f0;
-  --color-primary: #8b7cf6;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #1c1c2c;
-  --color-secondary-foreground: #e8e8f0;
-  --color-muted: #1c1c2c;
-  --color-muted-foreground: #8888a0;
-  --color-accent: #2a2218;
-  --color-accent-foreground: #fbbf24;
+  --color-background: #08080f;
+  --color-foreground: #e4e2dd;
+  --color-card: #111118;
+  --color-card-foreground: #e4e2dd;
+  --color-popover: #15151e;
+  --color-popover-foreground: #e4e2dd;
+  --color-primary: #d4a045;
+  --color-primary-foreground: #1a1208;
+  --color-secondary: #18181f;
+  --color-secondary-foreground: #e4e2dd;
+  --color-muted: #18181f;
+  --color-muted-foreground: #8a8780;
+  --color-accent: #241e10;
+  --color-accent-foreground: #e8b84b;
   --color-destructive: #ef4444;
   --color-destructive-foreground: #ffffff;
-  --color-border: #242438;
-  --color-input: #1c1c30;
-  --color-ring: #8b7cf6;
+  --color-border: #1e1e2a;
+  --color-input: #18181f;
+  --color-ring: #d4a045;
 
-  --color-brand: #8b7cf6;
-  --color-brand-foreground: #ffffff;
-  --color-brand-muted: #1e1a30;
-  --color-violet: #8b5cf6;
-  --color-violet-foreground: #ffffff;
-  --color-violet-muted: #1e1a30;
+  --color-brand: #d4a045;
+  --color-brand-foreground: #1a1208;
+  --color-brand-muted: #241e10;
+  --color-violet: #a78bfa;
+  --color-violet-foreground: #1a1208;
+  --color-violet-muted: #221e2e;
   --color-amber: #f5a623;
-  --color-amber-foreground: #1a1a2e;
-  --color-amber-muted: #2a2218;
-  --color-surface: #161622;
-  --color-surface-hover: #1e1e2e;
+  --color-amber-foreground: #1a1208;
+  --color-amber-muted: #241e10;
+  --color-surface: #0e0e16;
+  --color-surface-hover: #14141e;
 
-  --color-topbar: #10101a;
-  --color-topbar-border: #242438;
-  --color-topbar-foreground: #e8e8f0;
-  --color-topbar-muted: #6b6b80;
-  --color-topbar-active: #8b7cf6;
-  --color-topbar-active-bg: #1c1c2c;
+  --color-topbar: #0b0b14;
+  --color-topbar-border: #1e1e2a;
+  --color-topbar-foreground: #e4e2dd;
+  --color-topbar-muted: #6e6b65;
+  --color-topbar-active: #d4a045;
+  --color-topbar-active-bg: #1a1814;
 
-  --color-sidebar-background: #0e0e18;
-  --color-sidebar-foreground: #e8e8f0;
-  --color-sidebar-primary: #8b7cf6;
-  --color-sidebar-primary-foreground: #ffffff;
-  --color-sidebar-accent: #1c1c2c;
-  --color-sidebar-accent-foreground: #e8e8f0;
-  --color-sidebar-border: #242438;
-  --color-sidebar-ring: #8b7cf6;
+  --color-sidebar-background: #0a0a12;
+  --color-sidebar-foreground: #e4e2dd;
+  --color-sidebar-primary: #d4a045;
+  --color-sidebar-primary-foreground: #1a1208;
+  --color-sidebar-accent: #18181f;
+  --color-sidebar-accent-foreground: #e4e2dd;
+  --color-sidebar-border: #1e1e2a;
+  --color-sidebar-ring: #d4a045;
 }
 
-/* ── Keyframes ── */
+/* ── Shadcn-only keyframes ── */
 @keyframes accordion-down {
   from { height: 0; }
   to { height: var(--radix-accordion-content-height); }
@@ -133,24 +129,23 @@ html.dark {
   to { height: 0; }
 }
 
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* ── Custom animations ── */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
-@keyframes slide-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
-@keyframes scale-in {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
+.animate-spin-slow {
+  animation: spin-slow 2s linear infinite;
 }
 
-@keyframes tab-fade {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
 }
 
 /* ── Base Styles ── */
@@ -161,34 +156,28 @@ html {
 }
 
 body {
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background-color: var(--color-background);
   color: var(--color-foreground);
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* ── Default border color follows theme ── */
+/* ── Default border ── */
 *,
 ::before,
 ::after {
   border-color: var(--color-border);
 }
 
-/* ── Remove default focus ring on Chat textarea ── */
+/* ── Chat textarea focus ── */
 .chat-input-box textarea:focus {
   outline: none;
-  box-shadow: none;
-}
-
-/* ── Tab content transition ── */
-.tab-content-enter {
-  animation: tab-fade 0.2s ease-out;
 }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -197,7 +186,7 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -210,7 +199,7 @@ body {
   color: var(--color-foreground);
 }
 
-/* ── React Flow overrides for theming ── */
+/* ── React Flow ── */
 .react-flow__background {
   background-color: var(--color-background) !important;
 }
@@ -220,12 +209,20 @@ body {
   overflow: hidden;
 }
 
-/* ── Utility classes ── */
-.animate-pulse-soft {
-  animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+/* ── Subtle grid pattern on surface areas ── */
+.bg-surface-pattern {
+  background-image:
+    linear-gradient(var(--color-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-border) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: center center;
 }
 
-@keyframes pulse-soft {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+/* ── Glass surface utility ── */
+.glass-surface {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-card) 80%, transparent), color-mix(in srgb, var(--color-surface) 60%, transparent));
+  backdrop-filter: blur(20px);
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in srgb, var(--color-foreground) 6%, transparent),
+    0 4px 24px 0 color-mix(in srgb, var(--color-background) 80%, transparent);
 }

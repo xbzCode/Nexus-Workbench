@@ -1,13 +1,32 @@
-/** 匹配结果展示组件 — 支持 DAG 节点链一览 */
+/** Match result display — staggered reveal with framer-motion */
 
 "use client";
 
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import type { MatchResult } from "@/lib/types";
 import {
-  Workflow, Cpu, ArrowRight, Loader2, Sparkles, CheckCircle2,
-  Clock, Network, Tag,
+  Workflow, Cpu, ArrowRight, Loader2, Sparkles,
+  Network, Tag,
 } from "lucide-react";
+
+const staggerItems = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.08 } },
+};
+
+const itemFade = {
+  hidden: { opacity: 0, y: 8 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.22, 0.61, 0.36, 1] as const } },
+};
+
+/** Clean up a definition_id / node name for display */
+function cleanLabel(raw: string): string {
+  return raw
+    .replace(/[_-]/g, " ")
+    .replace(/\b\w/g, c => c.toUpperCase())
+    .trim();
+}
 
 interface MatchResultCardProps {
   result: MatchResult;
@@ -26,162 +45,158 @@ export default function MatchResultCard({
   const isDynamicAssembly = result.mode === "dynamic_assembly";
   const isBareAgent = result.mode === "bare_agent";
 
-  const modeLabel = isWorkflow ? "工作流匹配" : isDynamicAssembly ? "动态组装" : "裸 Agent";
-  const modeColor = isWorkflow
-    ? "border-brand bg-brand/5"
-    : isDynamicAssembly
-    ? "border-violet bg-violet/5"
-    : "border-amber bg-amber/5";
+  const modeLabel = isWorkflow ? "Workflow Match" : isDynamicAssembly ? "Dynamic Assembly" : "Bare Agent";
+  const modeAccent = isWorkflow ? "brand" : isDynamicAssembly ? "violet" : "amber";
 
   const nodes = result.dag?.nodes ?? [];
 
   return (
-    <div className="animate-scale-in w-full max-w-[600px] rounded-2xl border border-border bg-card shadow-xl overflow-hidden">
-      {/* 顶部：模式标识 */}
-      <div className={cn("flex items-center gap-2.5 px-5 py-3 border-b border-border/40", modeColor)}>
+    <motion.div
+      className="w-full max-w-[480px] rounded-2xl border border-border bg-card overflow-hidden shadow-xl shadow-black/10"
+      initial={{ opacity: 0, y: 24, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+    >
+      {/* Header — mode badge */}
+      <div className={cn(
+        "flex items-center gap-2.5 px-5 py-3 border-b border-border/40",
+        isWorkflow ? "bg-brand/5" : isDynamicAssembly ? "bg-violet/5" : "bg-amber/5"
+      )}>
         {isWorkflow ? (
-          <Workflow className={cn("h-4 w-4", "text-brand")} />
+          <Workflow className="h-4 w-4 text-brand" />
         ) : isDynamicAssembly ? (
-          <Sparkles className={cn("h-4 w-4", "text-violet")} />
+          <Sparkles className="h-4 w-4 text-violet" />
         ) : (
-          <Cpu className={cn("h-4 w-4", "text-amber")} />
+          <Cpu className="h-4 w-4 text-amber" />
         )}
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {modeLabel}
         </span>
         {result.confidence != null && (
-          <span className={cn(
-            "ml-auto text-xs font-medium",
-            isWorkflow ? "text-brand" : "text-violet"
-          )}>
-            {(result.confidence * 100).toFixed(0)}% 置信度
+          <span className={cn("ml-auto text-xs font-medium", isWorkflow ? "text-brand" : "text-violet")}>
+            {(result.confidence * 100).toFixed(0)}% confidence
           </span>
         )}
       </div>
 
-      {/* 主体 */}
-      <div className="p-5 space-y-4">
-        {/* 工作流/节点链信息 */}
+      {/* Body */}
+      <motion.div className="p-5 space-y-4" variants={staggerItems} initial="hidden" animate="visible">
+        {/* Workflow / node chain */}
         {(isWorkflow || isDynamicAssembly) && nodes.length > 0 && (
           <>
-            {/* 名称 + 分类 */}
-            <div className="flex items-center gap-2 flex-wrap">
+            <motion.div className="flex items-center gap-2 flex-wrap" variants={itemFade}>
               {isWorkflow && result.workflow_name && (
-                <span className="text-sm font-semibold text-foreground">
-                  {result.workflow_name}
-                </span>
+                <span className="text-sm font-semibold text-foreground">{result.workflow_name}</span>
               )}
               {isDynamicAssembly && (
-                <span className="text-sm font-semibold text-violet">
-                  动态工作流
-                </span>
+                <span className="text-sm font-semibold text-violet">Dynamic Workflow</span>
               )}
               <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                 <Tag className="h-3 w-3" />
-                {nodes.length} 节点 · {result.dag?.edges.length ?? 0} 连线
+                {nodes.length} nodes &middot; {result.dag?.edges.length ?? 0} edges
               </span>
-            </div>
+            </motion.div>
 
-            {/* DAG 节点链一览 */}
-            <div className="flex items-center gap-2 flex-wrap p-3 rounded-xl bg-surface/50 border border-border/50">
+            {/* Node chain */}
+            <motion.div className="flex items-center gap-2 flex-wrap p-3 rounded-xl bg-surface/50 border border-border/50" variants={itemFade}>
               {nodes.map((node, i) => (
                 <div key={node.id} className="flex items-center gap-2">
                   <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs">
                     <Network className="h-3 w-3 text-brand" />
                     <span className="font-medium text-foreground truncate max-w-[120px]">
-                      {node.id}
+                      {node.display_name || cleanLabel(node.definition_id || node.id)}
                     </span>
                   </div>
                   {i < nodes.length - 1 && (
-                    <ArrowRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+                    <ArrowRight className="h-3 w-3 text-muted-foreground/30 shrink-0" />
                   )}
                 </div>
               ))}
-            </div>
+            </motion.div>
           </>
         )}
 
-        {/* bare_agent 说明 */}
+        {/* Bare agent note */}
         {isBareAgent && (
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-amber/5 border border-amber/20">
+          <motion.div className="flex items-start gap-2 p-3 rounded-xl bg-amber/5 border border-amber/20" variants={itemFade}>
             <Cpu className="h-4 w-4 text-amber mt-0.5 shrink-0" />
             <div className="text-xs text-foreground space-y-1.5">
-              <p className="font-medium">裸 Agent 模式</p>
+              <p className="font-medium">Bare Agent Mode</p>
               <p className="text-muted-foreground">
-                未匹配到已有工作流，将直接使用 CodeBuddy Agent 执行。
+                No existing workflow matched. Will execute directly using CodeBuddy Agent.
               </p>
               {result.available_workflow_names && result.available_workflow_names.length > 0 && (
-                <div className="pt-1 text-[11px] text-muted-foreground/70">
-                  💡 已有工作流: {result.available_workflow_names.join("、")} — 确保 LLM_API_KEY 已配置即可启用语义匹配
-                </div>
+                <p className="pt-1 text-[11px] text-muted-foreground/70">
+                  Available: {result.available_workflow_names.join(", ")} — configure LLM_API_KEY to enable semantic matching
+                </p>
               )}
             </div>
-          </div>
+          </motion.div>
         )}
 
-        {/* 推理说明 */}
+        {/* Reasoning */}
         {result.reasoning && (
-          <div className="flex items-start gap-2">
+          <motion.div className="flex items-start gap-2" variants={itemFade}>
             <Sparkles className="h-3.5 w-3.5 text-brand mt-0.5 shrink-0" />
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              {result.reasoning}
-            </p>
-          </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">{result.reasoning}</p>
+          </motion.div>
         )}
 
-        {/* 置信度进度条 (非 bare_agent 时展示) */}
+        {/* Confidence bar */}
         {result.confidence != null && !isBareAgent && (
-          <div className="space-y-1">
+          <motion.div className="space-y-1.5" variants={itemFade}>
             <div className="flex items-center justify-between text-[11px]">
-              <span className="text-muted-foreground">匹配置信度</span>
+              <span className="text-muted-foreground">Match confidence</span>
               <span className={cn("font-medium", isWorkflow ? "text-brand" : "text-violet")}>
                 {Math.round(result.confidence * 100)}%
               </span>
             </div>
             <div className="h-1.5 rounded-full bg-surface overflow-hidden">
-              <div
+              <motion.div
                 className={cn(
-                  "h-full rounded-full transition-all duration-500",
+                  "h-full rounded-full",
                   result.confidence >= 0.8 ? "bg-emerald-400" :
                   result.confidence >= 0.6 ? "bg-amber" : "bg-muted-foreground"
                 )}
-                style={{ width: `${Math.round(result.confidence * 100)}%` }}
+                initial={{ width: 0 }}
+                animate={{ width: `${Math.round(result.confidence * 100)}%` }}
+                transition={{ duration: 0.6, ease: "easeOut", delay: 0.3 }}
               />
             </div>
-          </div>
+          </motion.div>
         )}
-      </div>
+      </motion.div>
 
-      {/* 底部操作 */}
-      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-surface-hover/30">
+      {/* Footer actions */}
+      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-surface-hover/20">
         <button
           className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-surface-hover"
           onClick={onCancel}
           disabled={loading}
         >
-          取消
+          Cancel
         </button>
-        <button
+        <motion.button
           className={cn(
-            "flex items-center gap-1.5 rounded-lg px-5 py-2 text-sm font-medium transition-all",
-            isWorkflow
-              ? "bg-brand text-brand-foreground hover:opacity-90"
-              : isDynamicAssembly
-              ? "bg-violet text-white hover:opacity-90"
-              : "bg-amber text-amber-foreground hover:opacity-90",
+            "flex items-center gap-1.5 rounded-lg px-5 py-2 text-sm font-medium transition-colors",
+            isWorkflow ? "bg-brand text-brand-foreground hover:bg-brand/90" :
+            isDynamicAssembly ? "bg-violet text-white hover:bg-violet/90" :
+            "bg-amber text-amber-foreground hover:bg-amber/90",
             loading && "opacity-70 cursor-not-allowed"
           )}
           onClick={onConfirm}
           disabled={loading}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.97 }}
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <ArrowRight className="h-4 w-4" />
           )}
-          {isWorkflow ? "确认执行" : isDynamicAssembly ? "确认组装并执行" : "开始执行"}
-        </button>
+          {isWorkflow ? "Execute" : isDynamicAssembly ? "Assemble & Execute" : "Start"}
+        </motion.button>
       </div>
-    </div>
+    </motion.div>
   );
 }

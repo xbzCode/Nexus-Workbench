@@ -3,76 +3,254 @@
 import Link from "next/link";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import { api } from "@/lib/api";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import type { APIResponse, Task, TaskCreate, Step } from "@/lib/types";
+import type { APIResponse, Task, NodeInstance, EdgeDef } from "@/lib/types";
 import {
   Plus, Loader2, Clock, Zap, AlertCircle, CheckCircle2,
-  Loader, XCircle, Play, Cpu, Sparkles, Workflow, ArrowRight,
+  Loader, XCircle, Cpu, Sparkles, Workflow, ArrowRight,
+  Search, ArrowUpDown, ChevronRight, Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type FilterKey = "all" | "running" | "pending" | "completed" | "failed";
+type SortOrder = "newest" | "oldest";
 
 const FILTER_TABS: { key: FilterKey; label: string; icon: React.ElementType }[] = [
-  { key: "all", label: "全部", icon: Zap },
-  { key: "running", label: "执行中", icon: Loader },
-  { key: "pending", label: "待执行", icon: Clock },
-  { key: "completed", label: "已完成", icon: CheckCircle2 },
-  { key: "failed", label: "失败", icon: XCircle },
+  { key: "all", label: "All", icon: Zap },
+  { key: "running", label: "Running", icon: Loader },
+  { key: "pending", label: "Pending", icon: Clock },
+  { key: "completed", label: "Completed", icon: CheckCircle2 },
+  { key: "failed", label: "Failed", icon: XCircle },
 ];
 
-const MODE_CONFIG: Record<string, { label: string; icon: React.ElementType; tagClass: string; borderClass: string }> = {
-  workflow: { label: "工作流", icon: Workflow, tagClass: "bg-emerald-500/10 text-emerald-400 border-emerald-400/30", borderClass: "border-l-emerald-400" },
-  dynamic_assembly: { label: "动态组装", icon: Sparkles, tagClass: "bg-cyan-500/10 text-cyan-400 border-cyan-400/30", borderClass: "border-l-cyan-400" },
-  bare_agent: { label: "Agent", icon: Cpu, tagClass: "bg-amber/10 text-amber border-amber/30", borderClass: "border-l-amber" },
+const MODE_CONFIG: Record<string, { label: string; icon: React.ElementType; tagClass: string; accentColor: string }> = {
+  workflow: { label: "Workflow", icon: Workflow, tagClass: "bg-emerald-500/10 text-emerald-400 border-emerald-400/30", accentColor: "var(--color-emerald-400, #34d399)" },
+  dynamic_assembly: { label: "Dynamic", icon: Sparkles, tagClass: "bg-violet/10 text-violet border-violet/30", accentColor: "var(--color-violet, #7c3aed)" },
+  bare_agent: { label: "Agent", icon: Cpu, tagClass: "bg-amber/10 text-amber border-amber/30", accentColor: "var(--color-amber, #d97706)" },
 };
-const DEFAULT_MODE = { label: "", icon: Cpu, tagClass: "bg-muted text-muted-foreground border-border", borderClass: "border-l-muted-foreground" };
+const DEFAULT_MODE = { label: "", icon: Cpu, tagClass: "bg-muted text-muted-foreground border-border", accentColor: "var(--color-muted-foreground)" };
+
+/* ── Helpers ── */
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes}分钟前`;
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}小时前`;
+  if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}天前`;
+  if (days < 7) return `${days}d ago`;
   return new Date(dateStr).toLocaleDateString("zh-CN");
 }
 
-/** 从 context.dag 或 output_data 中提取节点状态 */
-function getNodeProgress(task: Task): { nodes: string[]; statuses: Record<string, string> } {
-  const dag = task.context?.dag as { nodes: { id: string }[] } | undefined;
-  const nodeIds = dag?.nodes?.map(n => n.id) ?? [];
-  const statuses: Record<string, string> = {};
+function formatAbsoluteTime(dateStr: string): string {
+  return new Date(dateStr).toLocaleString("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+}
 
-  // 从 output_data 或 steps 推断节点状态
-  const outputs = task.output_data as Record<string, unknown> | null;
-  if (outputs) {
-    for (const nodeId of nodeIds) {
-      const nodeOut = outputs[nodeId] as { status?: string } | undefined;
-      if (nodeOut) {
-        statuses[nodeId] = nodeOut.status === "completed" ? "completed" :
-          nodeOut.status === "failed" ? "failed" : "running";
-      }
+/** Extract DAG pipeline info with topological ordering */
+interface PipelineNode {
+  id: string;
+  label: string;
+  status: "completed" | "running" | "failed" | "pending";
+}
+
+/** Clean up a definition_id / node name for display */
+function cleanLabel(raw: string): string {
+  return raw
+    .replace(/[_-]/g, " ")
+    .replace(/\b\w/g, c => c.toUpperCase())
+    .trim();
+}
+
+function getPipeline(task: Task): PipelineNode[] {
+  // 优先使用 API 联查填充的 task.dag，fallback 到 context.dag（兼容旧数据）
+  const dag = (task.dag ?? task.context?.dag) as { nodes: NodeInstance[]; edges: EdgeDef[] } | undefined;
+  if (!dag?.nodes?.length) return [];
+
+  const nodes = dag.nodes;
+  const edges = dag.edges ?? [];
+
+  // Build adjacency for topo sort
+  const inDegree: Record<string, number> = {};
+  const adj: Record<string, string[]> = {};
+  for (const n of nodes) {
+    inDegree[n.id] = 0;
+    adj[n.id] = [];
+  }
+  for (const e of edges) {
+    if (adj[e.source_id]) {
+      adj[e.source_id].push(e.target_id);
+      inDegree[e.target_id] = (inDegree[e.target_id] ?? 0) + 1;
     }
   }
 
-  // running 状态默认全部 pending（除非有完成记录）
-  if (task.status === "running" && Object.keys(statuses).length === 0) {
-    for (const nodeId of nodeIds) statuses[nodeId] = "pending";
+  // Kahn's topo sort
+  const sorted: string[] = [];
+  const queue: string[] = [];
+  for (const n of nodes) {
+    if ((inDegree[n.id] ?? 0) === 0) queue.push(n.id);
   }
-  if (task.status === "completed" && Object.keys(statuses).length === 0) {
-    for (const nodeId of nodeIds) statuses[nodeId] = "completed";
+  while (queue.length > 0) {
+    const curr = queue.shift()!;
+    sorted.push(curr);
+    for (const next of adj[curr] ?? []) {
+      inDegree[next] = (inDegree[next] ?? 1) - 1;
+      if (inDegree[next] === 0) queue.push(next);
+    }
+  }
+  // Fallback: add any unsorted nodes
+  for (const n of nodes) {
+    if (!sorted.includes(n.id)) sorted.push(n.id);
   }
 
-  return { nodes: nodeIds, statuses };
+  // Build id→node lookup for definition_id
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+  // Build status map
+  const outputs = task.output_data as Record<string, unknown> | null;
+  const statusMap: Record<string, PipelineNode["status"]> = {};
+  if (outputs) {
+    for (const n of nodes) {
+      const nodeOut = outputs[n.id] as { status?: string } | undefined;
+      if (nodeOut?.status === "completed") statusMap[n.id] = "completed";
+      else if (nodeOut?.status === "failed") statusMap[n.id] = "failed";
+      else if (nodeOut) statusMap[n.id] = "running";
+    }
+  }
+  if (task.status === "running" && Object.keys(statusMap).length === 0) {
+    for (const n of nodes) statusMap[n.id] = "pending";
+  }
+  if (task.status === "completed" && Object.keys(statusMap).length === 0) {
+    for (const n of nodes) statusMap[n.id] = "completed";
+  }
+
+  return sorted.map(id => {
+    const node = nodeMap.get(id);
+    // 优先使用 display_name，其次 cleanLabel(definition_id)，最后用 id
+    const rawLabel = node?.display_name || (node?.definition_id ? cleanLabel(node.definition_id) : id);
+    return {
+      id,
+      label: rawLabel,
+      status: statusMap[id] ?? "pending",
+    };
+  });
 }
+
+/** Get user input summary from input_data */
+function getInputSummary(task: Task): string | null {
+  const input = task.input_data as Record<string, unknown> | null;
+  if (!input) return null;
+  const userInput = input.user_input as string | undefined;
+  if (typeof userInput === "string" && userInput.trim()) {
+    return userInput.trim().length > 80 ? userInput.trim().slice(0, 77) + "..." : userInput.trim();
+  }
+  return null;
+}
+
+/* ── Animation ── */
+
+const containerVariants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.03 } },
+};
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 10 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.25, ease: [0.22, 0.61, 0.36, 1] as const } },
+};
+
+/* ── Skeleton ── */
+
+function SkeletonCard() {
+  return (
+    <div className="rounded-xl border border-border bg-card animate-pulse overflow-hidden">
+      <div className="p-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="h-4 w-14 rounded bg-muted" />
+          <div className="h-4 w-14 rounded bg-muted" />
+        </div>
+        <div className="h-3.5 w-4/5 rounded bg-muted mb-1.5" />
+        <div className="h-3 w-1/2 rounded bg-muted mb-3" />
+        <div className="flex items-center gap-1">
+          <div className="h-5 w-12 rounded bg-muted" />
+          <div className="h-3 w-3 text-muted">→</div>
+          <div className="h-5 w-14 rounded bg-muted" />
+          <div className="h-3 w-3 text-muted">→</div>
+          <div className="h-5 w-10 rounded bg-muted" />
+        </div>
+      </div>
+      <div className="flex items-center justify-between px-3 py-2 border-t border-border/40">
+        <div className="h-3 w-16 rounded bg-muted" />
+        <div className="h-3 w-10 rounded bg-muted" />
+      </div>
+    </div>
+  );
+}
+
+function SkeletonGrid() {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+      {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
+    </div>
+  );
+}
+
+/* ── Mini Pipeline ── */
+
+const NODE_STATUS_STYLE: Record<string, string> = {
+  completed: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+  running: "bg-brand/15 text-brand border-brand/25",
+  failed: "bg-red-500/15 text-red-400 border-red-500/25",
+  pending: "bg-muted/50 text-muted-foreground border-border/60",
+};
+
+function MiniPipeline({ pipeline }: { pipeline: PipelineNode[] }) {
+  return (
+    <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-thin">
+      {pipeline.map((node, i) => (
+        <span key={node.id} className="flex items-center gap-0.5 shrink-0">
+          <span
+            className={cn(
+              "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium border leading-tight whitespace-nowrap",
+              NODE_STATUS_STYLE[node.status] ?? NODE_STATUS_STYLE.pending,
+              node.status === "running" && "animate-pulse-soft",
+            )}
+          >
+            {node.label}
+          </span>
+          {i < pipeline.length - 1 && (
+            <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/30 shrink-0" />
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/* ── Agent Mode Indicator ── */
+
+function AgentIndicator({ task }: { task: Task }) {
+  const inputSummary = getInputSummary(task);
+
+  return (
+    <div className="flex items-start gap-1.5 rounded-md bg-surface/60 px-2 py-1.5">
+      <Bot className="h-3.5 w-3.5 text-amber shrink-0 mt-px" />
+      <span className="text-[11px] text-muted-foreground line-clamp-2 leading-snug">
+        {inputSummary || "Agent executing..."}
+      </span>
+    </div>
+  );
+}
+
+/* ── Main Page ── */
 
 export default function TasksPage() {
   const router = useRouter();
@@ -80,20 +258,15 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
-
-  // Create modal
-  const [showCreate, setShowCreate] = useState(false);
-  const [title, setTitle] = useState("");
-  const [inputData, setInputData] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
 
   const fetchTasks = useCallback(async () => {
     try {
       const res = await api.get<APIResponse<Task[]>>("/tasks");
       setTasks(res.data ?? []);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "加载失败");
+      setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
       setLoading(false);
     }
@@ -101,7 +274,6 @@ export default function TasksPage() {
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
-  // 5s 轮询 running/pending 任务
   useEffect(() => {
     const hasActive = tasks.some(t => t.status === "running" || t.status === "pending");
     if (!hasActive) return;
@@ -110,9 +282,21 @@ export default function TasksPage() {
   }, [tasks, fetchTasks]);
 
   const filtered = useMemo(() => {
-    if (activeFilter === "all") return tasks;
-    return tasks.filter(t => t.status === activeFilter);
-  }, [tasks, activeFilter]);
+    let result = tasks;
+    if (activeFilter !== "all") result = result.filter(t => t.status === activeFilter);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(t =>
+        t.title.toLowerCase().includes(q) || t.execution_mode?.toLowerCase().includes(q) || t.workflow_name?.toLowerCase().includes(q)
+      );
+    }
+    result = [...result].sort((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      return sortOrder === "newest" ? tb - ta : ta - tb;
+    });
+    return result;
+  }, [tasks, activeFilter, searchQuery, sortOrder]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: tasks.length };
@@ -120,196 +304,206 @@ export default function TasksPage() {
     return c;
   }, [tasks]);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    setSubmitting(true);
-    setCreateError(null);
-    try {
-      const body: TaskCreate = {
-        title: title.trim(),
-        input_data: inputData.trim() ? JSON.parse(inputData) : null,
-      };
-      const res = await api.post<APIResponse<Task>>("/tasks", body);
-      const taskId = res.data?.id;
-      if (taskId) {
-        try { await api.post(`/tasks/${taskId}/start`); } catch {}
-        router.push(`/tasks/${taskId}`);
-      }
-      setShowCreate(false);
-      setTitle("");
-      setInputData("");
-    } catch (err: unknown) {
-      setCreateError(err instanceof Error ? err.message : "创建失败");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (loading) {
-    return <div className="flex items-center justify-center py-20 text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />加载中…</div>;
-  }
   if (error) {
-    return <div className="mx-6 mt-6 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">{error}</div>;
+    return (
+      <div className="mx-5 mt-5 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">{error}</div>
+    );
   }
 
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="shrink-0 border-b border-border bg-background px-6 py-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold text-foreground">任务</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">查看和管理任务执行</p>
+      <div className="shrink-0 border-b border-border bg-background/80 backdrop-blur-sm px-5 py-3">
+        <div className="flex items-center justify-between mb-2.5">
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-semibold text-foreground tracking-tight">Tasks</h1>
+            <span className="text-[12px] text-muted-foreground/60">{tasks.length} total</span>
           </div>
-          <Button size="sm" onClick={() => setShowCreate(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />新建任务
+          <Button size="sm" onClick={() => router.push("/")} className="shadow-sm gap-1.5">
+            <Plus className="h-3.5 w-3.5" />New Task
           </Button>
         </div>
-        <div className="flex items-center gap-1">
-          {FILTER_TABS.map(tab => {
-            const Icon = tab.icon;
-            const count = counts[tab.key] ?? 0;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setActiveFilter(tab.key)}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all",
-                  activeFilter === tab.key ? "bg-brand-muted text-brand" : "text-muted-foreground hover:text-foreground hover:bg-surface-hover"
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />{tab.label}
-                {count > 0 && (
-                  <span className={cn("min-w-[18px] rounded-full px-1 text-[10px] font-semibold text-center", activeFilter === tab.key ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground")}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+
+        {/* Filter bar */}
+        <div className="flex items-center gap-2.5">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+            <Input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search tasks..."
+              className="pl-8 h-7 text-[13px] bg-surface border-border/60 focus:border-brand/40"
+            />
+          </div>
+
+          <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-surface border border-border/40">
+            {FILTER_TABS.map(tab => {
+              const Icon = tab.icon;
+              const count = counts[tab.key] ?? 0;
+              const isActive = activeFilter === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveFilter(tab.key)}
+                  className={cn(
+                    "relative flex items-center gap-1 rounded-md px-2.5 py-1 text-[12px] font-medium transition-all duration-200",
+                    isActive
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Icon className={cn("h-3 w-3", isActive && tab.key === "running" && "animate-spin-slow")} />
+                  {tab.label}
+                  {count > 0 && (
+                    <span className={cn(
+                      "min-w-[16px] rounded-full px-1 text-[9px] font-semibold text-center leading-[16px]",
+                      isActive ? "bg-brand/15 text-brand" : "bg-muted text-muted-foreground"
+                    )}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={() => setSortOrder(prev => prev === "newest" ? "oldest" : "newest")}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-surface transition-colors"
+            title={sortOrder === "newest" ? "Newest first" : "Oldest first"}
+          >
+            <ArrowUpDown className="h-3 w-3" />
+            {sortOrder === "newest" ? "Newest" : "Oldest"}
+          </button>
         </div>
       </div>
 
       {/* Task list */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {tasks.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-surface"><Zap className="h-8 w-8" /></div>
-            <p className="mb-1 text-base font-medium">暂无任务</p>
-            <p className="mb-4 text-sm">创建你的第一个执行任务</p>
-            <Button onClick={() => setShowCreate(true)}>新建任务</Button>
+      <div className="flex-1 overflow-y-auto p-4">
+        {loading && <SkeletonGrid />}
+
+        {!loading && tasks.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface border border-border/60">
+              <Zap className="h-7 w-7 text-brand/40" />
+            </div>
+            <p className="mb-1 text-sm font-medium">No tasks yet</p>
+            <p className="mb-4 text-[13px] text-muted-foreground/60">Describe what you need, we&apos;ll handle the rest</p>
+            <Button size="sm" onClick={() => router.push("/")} className="gap-1.5">
+              <Plus className="h-3.5 w-3.5" />Create Task
+            </Button>
           </div>
         )}
 
-        {tasks.length > 0 && filtered.length === 0 && (
+        {!loading && tasks.length > 0 && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-            <AlertCircle className="mb-2 h-8 w-8" />
-            <p className="text-sm">没有{FILTER_TABS.find(t => t.key === activeFilter)?.label}的任务</p>
+            <AlertCircle className="mb-2 h-7 w-7 opacity-40" />
+            <p className="text-[13px]">No {FILTER_TABS.find(t => t.key === activeFilter)?.label.toLowerCase()} tasks</p>
           </div>
         )}
 
-        {filtered.length > 0 && (
-          <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((task) => {
-              const mode = MODE_CONFIG[task.execution_mode] ?? DEFAULT_MODE;
-              const ModeIcon = mode.icon;
-              const { nodes, statuses } = getNodeProgress(task);
+        <AnimatePresence mode="wait">
+          {!loading && filtered.length > 0 && (
+            <motion.div
+              key={activeFilter}
+              className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+              variants={containerVariants}
+              initial="hidden"
+              animate="visible"
+            >
+              {filtered.map((task) => {
+                const mode = MODE_CONFIG[task.execution_mode] ?? DEFAULT_MODE;
+                const ModeIcon = mode.icon;
+                const pipeline = getPipeline(task);
+                const isWorkflow = task.execution_mode === "workflow" || task.execution_mode === "dynamic_assembly";
 
-              return (
-                <Link
-                  key={task.id}
-                  href={`/tasks/${task.id}`}
-                  className="group block"
-                >
-                  <div className={cn(
-                    "rounded-xl border border-border bg-card p-4 transition-all hover:shadow-md hover:border-brand/30 hover:-translate-y-0.5 border-l-4",
-                    mode.borderClass
-                  )}>
-                    {/* Top row */}
-                    <div className="flex items-center justify-between mb-2">
-                      <StatusBadge status={task.status} />
-                      <span className={cn("inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium", mode.tagClass)}>
-                        <ModeIcon className="h-3 w-3" />{mode.label}
-                      </span>
-                    </div>
+                return (
+                  <motion.div key={task.id} variants={cardVariants} layout>
+                    <Link href={`/tasks/${task.id}`} className="group block">
+                      <div className={cn(
+                        "relative flex flex-col rounded-xl border border-border bg-card transition-all duration-200 overflow-hidden",
+                        "hover:border-brand/25 hover:shadow-[0_4px_20px_-4px_color-mix(in_srgb,var(--color-brand)_10%,transparent)]",
+                        task.status === "running" && "border-brand/15 bg-brand/[0.02]"
+                      )}>
+                        {/* Mode accent line — top */}
+                        <div
+                          className="absolute top-0 left-0 right-0 h-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                          style={{ background: mode.accentColor }}
+                        />
 
-                    {/* Title */}
-                    <h3 className="mb-2 text-sm font-semibold text-foreground group-hover:text-brand transition-colors line-clamp-2">
-                      {task.title}
-                    </h3>
+                        {/* Card body */}
+                        <div className="flex-1 p-3">
+                          {/* Top row: status + mode */}
+                          <div className="flex items-center justify-between mb-1.5">
+                            <StatusBadge status={task.status} />
+                            {mode.label && (
+                              <span className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium", mode.tagClass)}>
+                                <ModeIcon className="h-2.5 w-2.5" />{mode.label}
+                              </span>
+                            )}
+                          </div>
 
-                    {/* Progress dots */}
-                    {nodes.length > 0 && (
-                      <div className="flex items-center gap-1.5 mb-2">
-                        {nodes.map((nodeId, i) => {
-                          const s = statuses[nodeId] || "pending";
-                          return (
-                            <div key={nodeId} className="flex items-center gap-1.5">
-                              <span
-                                className={cn(
-                                  "h-2 w-2 rounded-full",
-                                  s === "completed" && "bg-emerald-400",
-                                  s === "running" && "bg-brand animate-pulse",
-                                  s === "failed" && "bg-red-400",
-                                  s === "pending" && "bg-muted-foreground/30",
+                          {/* Title */}
+                          <h3 className="mb-2 text-[13px] font-semibold text-foreground group-hover:text-brand transition-colors duration-200 line-clamp-1 leading-snug">
+                            {task.title}
+                          </h3>
+
+                          {/* Pipeline or Agent indicator */}
+                          <div className="mt-2">
+                            {isWorkflow ? (
+                              <>
+                                {/* Workflow/Dynamic name line — 统一高度 */}
+                                <div className="flex items-center gap-1 mb-1.5 text-[11px]">
+                                  {task.execution_mode === "workflow" ? (
+                                    <>
+                                      <Workflow className="h-3 w-3 shrink-0 text-emerald-400/80" />
+                                      <span className="line-clamp-1 text-emerald-400/80">{task.workflow_name || "Workflow"}</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Sparkles className="h-3 w-3 shrink-0 text-violet/80" />
+                                      <span className="line-clamp-1 text-violet/80">Dynamic Assembly</span>
+                                    </>
+                                  )}
+                                </div>
+                                {pipeline.length > 0 ? (
+                                  <MiniPipeline pipeline={pipeline} />
+                                ) : (
+                                  <div className="flex items-center gap-1.5 rounded-md bg-emerald-500/5 px-2 py-1.5 border border-emerald-500/10">
+                                    <Workflow className="h-3.5 w-3.5 text-emerald-400/60 shrink-0" />
+                                    <span className="text-[11px] text-muted-foreground/60 line-clamp-1">
+                                      Workflow pending
+                                    </span>
+                                  </div>
                                 )}
-                                title={`${nodeId}: ${s}`}
-                              />
-                              {i < nodes.length - 1 && (
-                                <span className={cn("w-2 h-px", statuses[nodes[i + 1]] === "completed" ? "bg-emerald-400/40" : "bg-muted-foreground/20")} />
-                              )}
-                            </div>
-                          );
-                        })}
-                        <span className="ml-auto text-[10px] text-muted-foreground">
-                          {nodes.filter(n => statuses[n] === "completed").length}/{nodes.length}
-                        </span>
+                              </>
+                            ) : (
+                              <AgentIndicator task={task} />
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Bottom bar */}
+                        <div className="flex items-center justify-between px-3 py-2 border-t border-border/40">
+                          <span
+                            className="flex items-center gap-1 text-[11px] text-muted-foreground/60"
+                            title={formatAbsoluteTime(task.created_at)}
+                          >
+                            <Clock className="h-3 w-3" />{formatRelativeTime(task.created_at)}
+                          </span>
+                          <span className="flex items-center gap-0.5 text-[11px] opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-brand font-medium">
+                            View<ArrowRight className="h-3 w-3" />
+                          </span>
+                        </div>
                       </div>
-                    )}
-
-                    {/* Bottom */}
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatRelativeTime(task.created_at)}</span>
-                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-brand flex items-center gap-0.5">查看<ArrowRight className="h-3 w-3" /></span>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
+                    </Link>
+                  </motion.div>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-
-      {/* Create modal */}
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setShowCreate(false); }}>
-          <div className="animate-scale-in w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h2 className="mb-5 text-base font-semibold text-foreground">新建任务</h2>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="task-title">标题 *</Label>
-                <Input id="task-title" value={title} onChange={e => setTitle(e.target.value)} placeholder="例：修复登录页bug" autoFocus required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="task-input">输入数据 (JSON)</Label>
-                <Textarea id="task-input" value={inputData} onChange={e => setInputData(e.target.value)} placeholder='{"key": "value"}' rows={3} className="font-mono text-sm" />
-              </div>
-              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-surface-hover/30 text-[11px] text-muted-foreground">
-                <Sparkles className="h-3.5 w-3.5 text-brand" />
-                系统将自动匹配工作流或组装节点执行
-              </div>
-              {createError && <p className="text-sm text-destructive">{createError}</p>}
-              <div className="flex justify-end gap-2 pt-1">
-                <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>取消</Button>
-                <Button type="submit" disabled={submitting || !title.trim()}>
-                  {submitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}创建并执行
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

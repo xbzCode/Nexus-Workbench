@@ -11,7 +11,7 @@ from app.services import node_service
 router = APIRouter()
 
 
-@router.get("", response_model=APIResponse[list[NodeDefResponse]])
+@router.get("")
 async def list_nodes(
     category: str | None = Query(None),
     session: AsyncSession = Depends(get_session),
@@ -20,7 +20,7 @@ async def list_nodes(
     return APIResponse(data=items)
 
 
-@router.get("/{node_id}", response_model=APIResponse[NodeDefResponse])
+@router.get("/{node_id}")
 async def get_node(node_id: str, session: AsyncSession = Depends(get_session)):
     from uuid import UUID
     node = await node_service.get_node(session, UUID(node_id))
@@ -29,13 +29,13 @@ async def get_node(node_id: str, session: AsyncSession = Depends(get_session)):
     return APIResponse(data=node)
 
 
-@router.post("", response_model=APIResponse[NodeDefResponse], status_code=201)
+@router.post("", status_code=201)
 async def create_node(body: NodeDefCreate, session: AsyncSession = Depends(get_session)):
     node = await node_service.create_node(session, TEMP_USER_ID, body)
     return APIResponse(data=node)
 
 
-@router.put("/{node_id}", response_model=APIResponse[NodeDefResponse])
+@router.put("/{node_id}")
 async def update_node(
     node_id: str, body: NodeDefUpdate, session: AsyncSession = Depends(get_session)
 ):
@@ -47,7 +47,7 @@ async def update_node(
     return APIResponse(data=updated)
 
 
-@router.delete("/{node_id}", response_model=APIResponse[None])
+@router.delete("/{node_id}")
 async def delete_node(node_id: str, session: AsyncSession = Depends(get_session)):
     from uuid import UUID
     node = await node_service.get_node(session, UUID(node_id))
