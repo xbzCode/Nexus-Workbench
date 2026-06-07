@@ -237,3 +237,29 @@ body {
     inset 0 1px 0 0 color-mix(in srgb, var(--color-foreground) 6%, transparent),
     0 4px 24px 0 color-mix(in srgb, var(--color-background) 80%, transparent);
 }
+
+/* ── Team Tree: flowing connection lines ── */
+@keyframes dashFlow {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+@keyframes dashFlowSlow {
+  to {
+    stroke-dashoffset: 20;
+  }
+}
+
+.flow-line {
+  animation: dashFlow 1.5s linear infinite;
+}
+
+.flow-line-slow {
+  animation: dashFlowSlow 4s linear infinite;
+}
+
+.flow-line-active {
+  animation: dashFlow 0.8s linear infinite;
+  filter: drop-shadow(0 0 4px var(--color-brand));
+}

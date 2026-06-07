@@ -18,12 +18,63 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session
+from app.models.team import Team
+from app.models.workflow import Workflow
+from app.models.node import NodeDefinition
 from app.schemas.base import APIResponse
-from app.schemas.team import TeamCreate, TeamUpdate, TeamResponse, TeamMembershipUpdate
+from app.schemas.team import TeamCreate, TeamUpdate, TeamResponse
 from app.services import team_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _team_to_response(team: Team) -> dict:
+    """将 ORM Team 转为可序列化的 dict"""
+    return {
+        "id": str(team.id),
+        "name": team.name,
+        "display_name": team.display_name,
+        "description": team.description,
+        "icon": team.icon,
+        "team_prompt": team.team_prompt,
+        "default_adapter_type": team.default_adapter_type,
+        "workflow_ids": team.workflow_ids or [],
+        "node_definition_ids": team.node_definition_ids or [],
+        "status": team.status,
+        "created_at": team.created_at.isoformat() if team.created_at else None,
+        "updated_at": team.updated_at.isoformat() if team.updated_at else None,
+    }
+
+
+def _workflow_to_dict(wf: Workflow) -> dict:
+    """将 ORM Workflow 转为可序列化的 dict"""
+    return {
+        "id": str(wf.id),
+        "name": wf.name,
+        "description": wf.description,
+        "category": wf.category,
+        "status": wf.status,
+        "version": wf.version,
+        "created_at": wf.created_at.isoformat() if wf.created_at else None,
+        "updated_at": wf.updated_at.isoformat() if wf.updated_at else None,
+    }
+
+
+def _node_to_dict(node: NodeDefinition) -> dict:
+    """将 ORM NodeDefinition 转为可序列化的 dict"""
+    return {
+        "id": str(node.id),
+        "name": node.name,
+        "display_name": node.display_name,
+        "description": node.description,
+        "category": node.category,
+        "adapter_type": node.adapter_type,
+        "version": node.version,
+        "status": node.status,
+        "created_at": node.created_at.isoformat() if node.created_at else None,
+        "updated_at": node.updated_at.isoformat() if node.updated_at else None,
+    }
 
 
 @router.get("")
@@ -33,7 +84,7 @@ async def list_teams(
 ):
     """列出所有 Team"""
     teams = await team_service.list_teams(session, status=status)
-    return APIResponse(data=teams)
+    return APIResponse(data=[_team_to_response(t) for t in teams])
 
 
 @router.post("")
@@ -42,12 +93,11 @@ async def create_team(
     session: AsyncSession = Depends(get_session),
 ):
     """创建 Team"""
-    # 检查 name 唯一性
     existing = await team_service.get_team_by_name(session, body.name)
     if existing:
         raise HTTPException(status_code=409, detail=f"Team name '{body.name}' already exists")
     team = await team_service.create_team(session, body)
-    return APIResponse(data=team)
+    return APIResponse(data=_team_to_response(team))
 
 
 @router.get("/{team_id}")
@@ -59,7 +109,7 @@ async def get_team(
     team = await team_service.get_team(session, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    return APIResponse(data=team)
+    return APIResponse(data=_team_to_response(team))
 
 
 @router.patch("/{team_id}")
@@ -73,7 +123,7 @@ async def update_team(
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     team = await team_service.update_team(session, team, body)
-    return APIResponse(data=team)
+    return APIResponse(data=_team_to_response(team))
 
 
 @router.delete("/{team_id}")
@@ -99,7 +149,7 @@ async def get_team_workflows(
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     workflows = await team_service.get_team_workflows(session, team)
-    return APIResponse(data=workflows)
+    return APIResponse(data=[_workflow_to_dict(w) for w in workflows])
 
 
 @router.get("/{team_id}/nodes")
@@ -112,7 +162,7 @@ async def get_team_nodes(
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     nodes = await team_service.get_team_nodes(session, team)
-    return APIResponse(data=nodes)
+    return APIResponse(data=[_node_to_dict(n) for n in nodes])
 
 
 @router.post("/{team_id}/validate")

@@ -157,7 +157,7 @@ async def get_team_workflows(session: AsyncSession, team: Team) -> list[Workflow
 
 
 async def get_team_nodes(session: AsyncSession, team: Team) -> list[NodeDefinition]:
-    """获取 Team 关联的所有已发布 NodeDefinition"""
+    """获取 Team 关联的所有 NodeDefinition（draft + published，排除 deprecated）"""
     if not team.node_definition_ids:
         return []
     try:
@@ -166,7 +166,7 @@ async def get_team_nodes(session: AsyncSession, team: Team) -> list[NodeDefiniti
         return []
     stmt = select(NodeDefinition).where(
         NodeDefinition.id.in_(uuids),
-        NodeDefinition.status == "published",
+        NodeDefinition.status.in_(["draft", "published"]),
     ).order_by(NodeDefinition.name)
     result = await session.execute(stmt)
     return list(result.scalars().all())

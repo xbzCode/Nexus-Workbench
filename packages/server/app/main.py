@@ -37,15 +37,15 @@ async def lifespan(app: FastAPI):
             await session.commit()
         logger.info("[lifespan] Seed user ensured")
 
-        # 同步扩展节点
-        async with async_session_factory() as session:
-            count = await sync_extensions(session, TEMP_USER_ID)
-        logger.info("[lifespan] Extension nodes synced: %d", count)
-
-        # 种子 Team 数据
+        # 种子 Team 数据（先创建 Team，再同步扩展节点以便关联）
         async with async_session_factory() as session:
             team_count = await ensure_default_teams(session)
         logger.info("[lifespan] Default teams ensured: %d", team_count)
+
+        # 同步扩展节点（Team 已存在，可正确关联）
+        async with async_session_factory() as session:
+            count = await sync_extensions(session, TEMP_USER_ID)
+        logger.info("[lifespan] Extension nodes synced: %d", count)
     except Exception as e:
         logger.warning("[lifespan] DB not available, skipping seed: %s", e)
 
