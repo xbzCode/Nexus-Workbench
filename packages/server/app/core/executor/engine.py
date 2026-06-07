@@ -829,7 +829,7 @@ async def _classify_approval_type(question_text: str) -> dict[str, Any]:
     """调用 LLM 判断 Agent 提问的审批类型
 
     Returns:
-        {"type": "choice"|"input"|"confirm", "options": [...], "reasoning": "..."}
+        {"type": "choice"|"input"|"confirm"|"ranking", "options": [...], "reasoning": "..."}
     """
     try:
         from app.core.llm.client import achat
@@ -847,10 +847,12 @@ Agent 提问：
   需要提取选项列表
 - "input"：Agent 要求用户输入具体内容（如"请输入..."、"请描述..."），没有给选项
 - "confirm"：Agent 在征求确认或许可（如"是否继续？"、"确认执行？"）
+- "ranking"：Agent 要求用户对多个选项进行排序/优先级排列（如"按重要性排序"、"优先选择哪个"、"排出顺序"、"哪个更重要"）
+  需要提取待排序的选项列表
 
 返回格式：
 {{
-  "type": "choice|input|confirm",
+  "type": "choice|input|confirm|ranking",
   "options": [
     {{"label": "选项描述", "value": "唯一值"}}
   ],
@@ -859,9 +861,11 @@ Agent 提问：
 
 规则：
 - 如果问题中包含选择意味（"还是"、"或者"、"哪种"、"哪个"），但选择项不明确，仍然归为 input
-- 只有 Agent 明确列举了 2 个及以上选项时，才归为 choice
+- 只有 Agent 明确列举了 2 个及以上选项时，才归为 choice 或 ranking
+- 如果问题要求排序、比较优先级、排出顺序，则归为 ranking
 - options 数组中 value 用简短英文标识
 - 对于 confirm 类型，options 为空数组
+- 对于 ranking 类型，options 列表中的顺序不重要（用户会在 UI 中自行排序）
 - 只返回 JSON，不要其他内容"""
 
         content = await achat(

@@ -20,7 +20,7 @@ class Approval(UUIDMixin, TimestampMixin, Base):
     urgency: Mapped[str] = mapped_column(String(20), default="auto_decidable")
     # auto_decidable | human_required
     type: Mapped[str] = mapped_column(String(20), default="confirm")
-    # confirm | choice | input
+    # confirm | choice | ranking | input
     title: Mapped[str] = mapped_column(String(500))
     description: Mapped[str | None] = mapped_column(Text)
     options: Mapped[list | None] = mapped_column(JSONB)

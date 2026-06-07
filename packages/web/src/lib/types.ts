@@ -223,3 +223,39 @@ export interface ConfirmWorkflowRequest {
   category?: string | null;
   dag?: DAGDefinition | null;
 }
+
+// ── Snapshot ──
+
+export interface SnapshotItem {
+  id: string;
+  task_id: string;
+  step_id?: string | null;
+  type: string;
+  git_commit_hash: string;
+  git_diff?: string | null;
+  untracked_files?: unknown[] | null;
+  created_at: string;
+}
+
+// ── Execution Path ──
+
+export interface ExecutionPathItem {
+  id: string;
+  task_id: string;
+  source: string;
+  steps: Record<string, unknown>[] | null;
+  total_duration: number | null;
+  total_approvals: number;
+  success: boolean;
+  user_rating: number | null;
+  precipitated_to: string | null;
+  created_at: string;
+}
+
+// ── File Entry ──
+
+export interface FileEntry {
+  path: string;
+  size: number;
+  modified_at: string;
+}
