@@ -30,9 +30,8 @@ from typing import AsyncIterator
 
 from app.adapters.base import AgentHarnessAdapter
 from app.adapters.events import (
-    AdapterEvent, AgentThinkingEvent, ApprovalNeededEvent,
-    QuestionDetectedEvent, ProgressUpdateEvent,
-    ExecutionCompletedEvent,
+    AdapterEvent, AgentThinkingEvent,
+    ToolUseEvent, ProgressUpdateEvent, ExecutionCompletedEvent,
 )
 from app.config.settings import settings
 
@@ -87,13 +86,6 @@ def _find_codebuddy() -> str | None:
         if shutil.which("codebuddy"):
             return "codebuddy"
     return None
-
-
-# 安全配置：高风险命令关键词
-RISKY_COMMANDS = os.getenv(
-    "RISKY_COMMANDS",
-    "rm ,rmdir,del ,format,mkfs,dd ,> /dev/",
-).split(",")
 
 
 class CodeBuddyAdapter(AgentHarnessAdapter):
@@ -316,12 +308,6 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
             elif subtype == "result":
                 session["_completed"] = True
                 result_text = data.get("result", "")
-                if result_text and self._detect_question(result_text):
-                    yield QuestionDetectedEvent(
-                        question=result_text,
-                        context_data={"phase": "result", "session_id": data.get("session_id")},
-                    )
-                    return
                 yield ExecutionCompletedEvent(output={
                     "result": result_text,
                     "session_id": data.get("session_id"),
@@ -347,69 +333,16 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
 
                 elif block_type == "text":
                     text = block.get("text", "")
-                    if self._detect_question(text):
-                        yield QuestionDetectedEvent(
-                            question=text,
-                            context_data={"phase": "assistant_text", "session_id": session.get("codebuddy_session_id")},
-                        )
-                    else:
-                        yield ProgressUpdateEvent(content=text)
+                    yield ProgressUpdateEvent(content=text)
 
                 elif block_type == "tool_use":
                     tool_name = block.get("name", "")
                     tool_input = block.get("input", {})
-                    if self._is_risky_tool(tool_name, tool_input):
-                        yield ApprovalNeededEvent(approval={
-                            "source": "agent",
-                            "type": "confirm",
-                            "title": f"Agent 请求执行: {tool_name}",
-                            "description": json.dumps(tool_input, ensure_ascii=False)[:500],
-                            "context_data": {
-                                "tool_name": tool_name,
-                                "tool_input": tool_input,
-                                "risk_level": "high",
-                            },
-                        })
+                    # 将工具调用事件交给 Engine 层做风险评估
+                    yield ToolUseEvent(tool_name=tool_name, tool_input=tool_input)
 
         elif msg_type == "user":
             pass
-
-    def _detect_question(self, text: str) -> bool:
-        """检测文本中是否包含提问/不确定的表达"""
-        if not text or len(text) < 5:
-            return False
-
-        if len(text) < 20 and not any(c in text for c in "？?"):
-            return False
-
-        question_patterns = [
-            "？", "?",
-            "确认执行", "请确认",
-            "请选择", "你想用",
-            "你希望", "是否需要",
-            "还是", "或者",
-            "哪种", "哪个",
-            "什么方案", "如何处理",
-        ]
-
-        text_lower = text.lower()
-        for pattern in question_patterns:
-            if pattern in text:
-                if pattern in ("？", "?"):
-                    return True
-                if len(text) > 30:
-                    return True
-
-        english_question_words = [
-            "would you like", "which option", "do you want",
-            "should i", "would you prefer", "please confirm",
-            "please choose", "please select",
-        ]
-        for pattern in english_question_words:
-            if pattern in text_lower:
-                return True
-
-        return False
 
     async def send_input(self, session_id: str, input_data: dict) -> None:
         """发送输入（stream-json 输入模式）"""
@@ -570,12 +503,6 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
                 except Exception:
                     pass
 
-    def _is_risky_tool(self, tool_name: str, tool_input: dict) -> bool:
-        """判断是否为高风险工具调用"""
-        if tool_name == "Bash":
-            cmd = str(tool_input.get("command", ""))
-            return any(r in cmd for r in RISKY_COMMANDS)
-        return False
 
 
 # 全局单例

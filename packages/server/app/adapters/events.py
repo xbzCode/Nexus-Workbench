@@ -17,17 +17,16 @@ class AgentThinkingEvent(AdapterEvent):
 
 
 @dataclass
-class ApprovalNeededEvent(AdapterEvent):
-    """Agent 需要确认（高风险操作）"""
-    approval: dict = field(default_factory=dict)
+class ToolUseEvent(AdapterEvent):
+    """Agent 调用工具（由 Engine 层决定是否需要审批）"""
+    tool_name: str = ""
+    tool_input: dict = field(default_factory=dict)
 
 
 @dataclass
-class QuestionDetectedEvent(AdapterEvent):
-    """Agent 提问/不确定，需要用户回答后继续"""
-    question: str = ""
-    options: list = field(default_factory=list)
-    context_data: dict = field(default_factory=dict)
+class ApprovalNeededEvent(AdapterEvent):
+    """Agent 需要确认（高风险操作）"""
+    approval: dict = field(default_factory=dict)
 
 
 @dataclass

@@ -9,7 +9,7 @@ import ApprovalCard from "@/components/approval/ApprovalCard";
 import { Button } from "@/components/ui/button";
 import type { Approval, SnapshotItem, ExecutionPathItem, FileEntry } from "@/lib/types";
 import {
-  Bell, ScrollText, Camera, Route, FileText, Folder,
+  Bell, ScrollText, Camera, Route, File as FileIcon, FileText, Folder,
   ChevronUp, ChevronDown, RotateCcw, Star, Download, Loader2,
   FileCode,
 } from "lucide-react";
@@ -25,7 +25,7 @@ function formatFileSize(bytes: number): string {
 function getFileIcon(fp: string) {
   if (/\.(tsx?|jsx?|py)$/.test(fp)) return FileCode;
   if (/\.(json|yml|yaml|toml|xml|md|txt|log)$/.test(fp)) return FileText;
-  return File;
+  return FileIcon;
 }
 
 interface LeftBottomPanelProps {

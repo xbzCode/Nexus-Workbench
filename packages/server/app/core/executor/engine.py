@@ -7,7 +7,11 @@
    - compute_input → evaluate_conditions → execute_node → emit_events
    - Mock 模式：asyncio.sleep(0.5) + 返回 {"status": "completed"}
    - Adapter 模式：通过 Adapter Registry 路由到对应实现
-4. 支持审批（ApprovalNeededEvent/QuestionDetectedEvent）→ 暂停等待用户 → resume
+4. 支持审批：
+   - ToolUseEvent（工具调用）→ LLM 风险评估 → 高风险则暂停等待用户确认 → resume
+   - ExecutionCompletedEvent 后调用 LLM 分析 Agent 输出是否包含提问
+     → 如有提问：创建审批 → 等待用户 → resume → 继续循环
+     → 如无提问：正常完成节点
 """
 
 from __future__ import annotations
@@ -330,6 +334,7 @@ async def _execute_node_via_adapter(
         )
 
     # 8. 创建 TaskStep
+    step_id: uuid.UUID | None = None
     if task_id and bg_session_factory:
         async with bg_session_factory() as step_session:
             from app.models.task import TaskStep
@@ -349,58 +354,112 @@ async def _execute_node_via_adapter(
     logger.info(f"[DAG] Starting adapter session for node={node_id}, adapter={adapter_type}")
     session_id = await adapter.start_session(adapter_config)
 
-    # 10. 收集事件
-    output = {}
-    approval_count = 0
-    progress_texts = []
-    thinking_texts = []
-
+    # 10. 收集事件 + 审批循环
+    # Adapter 层不再做提问检测，所有 agent text 统一作为 ProgressUpdateEvent。
+    # 每轮 on_event 结束后（收到 ExecutionCompletedEvent），调用 LLM 分析本轮输出
+    # 是否包含提问。如有则创建审批、等待用户、resume，继续下一轮。
     from app.adapters.events import (
-        AgentThinkingEvent, ApprovalNeededEvent, QuestionDetectedEvent,
+        AgentThinkingEvent, ToolUseEvent,
         ProgressUpdateEvent, ExecutionCompletedEvent,
     )
 
-    async for event in adapter.on_event(session_id):
-        if isinstance(event, AgentThinkingEvent):
-            thinking_texts.append(event.content)
-            event_bus.emit(Event(
-                event_type="node:thinking",
-                data={"node_id": node_id, "content": event.content[:200]},
-                source=node_id,
-                task_id=task_id,
-            ))
+    output: dict[str, Any] = {}
+    approval_count = 0
+    all_progress_texts: list[str] = []
+    all_thinking_texts: list[str] = []
 
-        elif isinstance(event, ProgressUpdateEvent):
-            progress_texts.append(event.content)
-            event_bus.emit(Event(
-                event_type="node:progress",
-                data={"node_id": node_id, "content": event.content[:200]},
-                source=node_id,
-                task_id=task_id,
-            ))
+    while True:
+        round_progress: list[str] = []
+        round_thinking: list[str] = []
+        output = {}
 
-        elif isinstance(event, QuestionDetectedEvent):
-            # Agent 提问 → LLM 分类 → 创建审批 → 等待用户 → resume
+        async for event in adapter.on_event(session_id):
+            if isinstance(event, AgentThinkingEvent):
+                round_thinking.append(event.content)
+                event_bus.emit(Event(
+                    event_type="node:thinking",
+                    data={"node_id": node_id, "content": event.content[:200]},
+                    source=node_id,
+                    task_id=task_id,
+                ))
+
+            elif isinstance(event, ProgressUpdateEvent):
+                round_progress.append(event.content)
+                event_bus.emit(Event(
+                    event_type="node:progress",
+                    data={"node_id": node_id, "content": event.content[:200]},
+                    source=node_id,
+                    task_id=task_id,
+                ))
+
+            elif isinstance(event, ToolUseEvent):
+                # 工具调用 → LLM 风险评估 → 高风险则创建审批
+                risk = await _assess_tool_risk(event.tool_name, event.tool_input)
+                if risk and risk.get("risk_level") == "high":
+                    approval_count += 1
+                    event_bus.emit(Event(
+                        event_type="node:risky_tool",
+                        data={
+                            "node_id": node_id,
+                            "tool_name": event.tool_name,
+                            "tool_input_summary": json.dumps(event.tool_input, ensure_ascii=False)[:200],
+                            "risk_level": "high",
+                        },
+                        source=node_id,
+                        task_id=task_id,
+                    ))
+                    approval_id = await _create_and_wait_approval(
+                        task_id=task_id,
+                        node_id=node_id,
+                        step_id=step_id,
+                        source="agent",
+                        approval_type="confirm",
+                        title=risk.get("title", f"Agent 请求执行: {event.tool_name}"),
+                        description=risk.get("description", ""),
+                        options=None,
+                        bg_session_factory=bg_session_factory,
+                        event_bus=event_bus,
+                    )
+                    result = await _wait_for_approval_db(approval_id, bg_session_factory)
+                    if result is None:
+                        raise DAGExecutionPaused("审批超时，任务已暂停", approval_id=approval_id)
+                    approved = result and result.get("approved", True)
+                    if approved:
+                        await adapter.resume_session(session_id, "用户已确认，请继续执行")
+                    else:
+                        raise DAGExecutionError("用户拒绝了 Agent 操作")
+
+            elif isinstance(event, ExecutionCompletedEvent):
+                output = event.output
+
+        # 累积本轮文本
+        all_progress_texts.extend(round_progress)
+        all_thinking_texts.extend(round_thinking)
+
+        # 11. 分析 Agent 输出是否包含提问
+        round_text = "\n".join(round_progress)
+        analysis = await _analyze_agent_output(round_text)
+
+        if analysis and analysis.get("is_question"):
+            # Agent 在提问，创建审批等待用户回答
             approval_count += 1
-            question_text = event.question[:500]
-            logger.info(f"[DAG] Agent question: {question_text[:100]}")
+            approval_type = analysis.get("type", "input")
+            approval_options = analysis.get("options")
+            question_text = analysis.get("question", round_text[:500])
+
+            logger.info(f"[DAG] Agent question detected: type={approval_type}, text={question_text[:100]}")
             event_bus.emit(Event(
                 event_type="node:question",
-                data={"node_id": node_id, "question": question_text,
+                data={"node_id": node_id, "question": question_text[:500],
                       "timestamp": datetime.now(timezone.utc).isoformat()},
                 source=node_id,
                 task_id=task_id,
             ))
-            # 调用 LLM 分类提问类型
-            classification = await _classify_approval_type(question_text)
-            approval_type = classification.get("type", "input")
-            approval_options = classification.get("options") or event.options
-            logger.info(f"[DAG] Approval classified: type={approval_type}, options={approval_options}")
-            # 创建审批
+
             approval_id = await _create_and_wait_approval(
                 task_id=task_id,
                 node_id=node_id,
-                step_id=step_id if task_id else None,
+                step_id=step_id,
                 source="agent",
                 approval_type=approval_type,
                 title=f"Agent 提问: {node_id}",
@@ -409,7 +468,6 @@ async def _execute_node_via_adapter(
                 bg_session_factory=bg_session_factory,
                 event_bus=event_bus,
             )
-            # 获取审批结果
             result = await _wait_for_approval_db(approval_id, bg_session_factory)
             if result is None:
                 raise DAGExecutionPaused("审批超时，任务已暂停", approval_id=approval_id)
@@ -420,39 +478,16 @@ async def _execute_node_via_adapter(
                     user_answer = "确认，请继续执行"
             if not user_answer:
                 user_answer = "请继续执行"
-            # Resume
+            # Resume adapter session，然后 continue 回到 while True 重新收集事件
             await adapter.resume_session(session_id, user_answer)
+            continue
+        else:
+            # Agent 未提问，正常完成
+            break
 
-        elif isinstance(event, ApprovalNeededEvent):
-            # 高风险操作审批 — type=confirm
-            approval_count += 1
-            approval_id = await _create_and_wait_approval(
-                task_id=task_id,
-                node_id=node_id,
-                step_id=step_id if task_id else None,
-                source="agent",
-                approval_type="confirm",
-                title=f"Agent 审批: {node_id}",
-                description=event.approval.get("description", ""),
-                options=event.approval.get("options"),
-                bg_session_factory=bg_session_factory,
-                event_bus=event_bus,
-            )
-            result = await _wait_for_approval_db(approval_id, bg_session_factory)
-            if result is None:
-                raise DAGExecutionPaused("审批超时，任务已暂停", approval_id=approval_id)
-            approved = result and result.get("approved", True)
-            if approved:
-                await adapter.resume_session(session_id, "用户已确认，请继续执行")
-            else:
-                raise DAGExecutionError("用户拒绝了 Agent 操作")
-
-        elif isinstance(event, ExecutionCompletedEvent):
-            output = event.output
-
-    # 11. 构建输出
-    result_text = "\n".join(progress_texts) if progress_texts else ""
-    result_thinking = "\n".join(thinking_texts) if thinking_texts else ""
+    # 12. 构建输出
+    result_text = "\n".join(all_progress_texts) if all_progress_texts else ""
+    result_thinking = "\n".join(all_thinking_texts) if all_thinking_texts else ""
     summary = result_text or result_thinking or "节点执行完成"
 
     final_output = {
@@ -823,60 +858,215 @@ def _resolve_source_dir(source_dir: str | None) -> str | None:
     return None
 
 
-# ── LLM 审批类型分类 ──
+# ── LLM Agent 输出分析 ──
 
-async def _classify_approval_type(question_text: str) -> dict[str, Any]:
-    """调用 LLM 判断 Agent 提问的审批类型
+async def _analyze_agent_output(agent_text: str) -> dict[str, Any] | None:
+    """调用 LLM 分析 Agent 输出是否包含提问，并返回结构化类型数据
+
+    一次 LLM 调用完成「是否提问」+「提问类型分类」，避免正则匹配的误判。
+
+    Args:
+        agent_text: Agent 本轮输出的文本（多个 ProgressUpdateEvent 拼接）
 
     Returns:
-        {"type": "choice"|"input"|"confirm"|"ranking", "options": [...], "reasoning": "..."}
+        None — 文本为空或无需分析（短文本/纯陈述）
+        {"is_question": False} — LLM 判定不是提问
+        {"is_question": True, "type": ..., "question": ..., "options": [...], "reasoning": ...}
     """
+    # ── 快速排除：空文本/极短文本不需要调用 LLM ──
+    if not agent_text or len(agent_text.strip()) < 10:
+        return None
+
+    # ── 快速排除：纯陈述性文本启发式 ──
+    # 如果文本中完全没有问号，且没有任何疑问倾向词，大概率不是提问
+    has_question_mark = "？" in agent_text or "?" in agent_text
+    _hint_words = ["请选择", "请确认", "是否", "你想", "你希望", "哪个", "哪种",
+                   "would you", "should i", "do you want", "please choose"]
+    has_hint = any(w in agent_text.lower() for w in _hint_words)
+    if not has_question_mark and not has_hint and len(agent_text) < 80:
+        return None
+
     try:
         from app.core.llm.client import achat
         from app.config.settings import settings
 
-        prompt = f"""分析以下 Agent 提问，判断用户应该如何回应。
+        prompt = f"""分析以下 AI Agent 的输出，判断它是否在向用户提问/请求指示。
 
-Agent 提问：
-{question_text}
+Agent 输出：
+---
+{agent_text[:2000]}
+---
 
-请判断这个问题属于哪种类型，返回 JSON：
+请判断并返回 JSON：
 
-类型说明：
-- "choice"：Agent 给用户提供了明确的选项（如"你想用方案A还是方案B？"、"请选择..."）
-  需要提取选项列表
-- "input"：Agent 要求用户输入具体内容（如"请输入..."、"请描述..."），没有给选项
-- "confirm"：Agent 在征求确认或许可（如"是否继续？"、"确认执行？"）
-- "ranking"：Agent 要求用户对多个选项进行排序/优先级排列（如"按重要性排序"、"优先选择哪个"、"排出顺序"、"哪个更重要"）
-  需要提取待排序的选项列表
+判断规则：
+1. is_question = true 的情况：
+   - Agent 明确向用户提问（如"你想用哪种方案？"、"请确认是否继续"）
+   - Agent 列出了选项让用户选择（如"方案A还是方案B？"）
+   - Agent 要求用户提供信息（如"请输入项目名称"）
+   - Agent 请求许可/确认（如"是否继续执行？"）
+   - Agent 要求排序/优先级排列（如"按重要性排序"）
+
+2. is_question = false 的情况：
+   - Agent 只是在陈述进度或结果（如"已完成XX"、"正在执行YY"）
+   - Agent 在解释或描述某事（如"这是因为..."、"该文件包含..."）
+   - Agent 输出的是总结性文字（如"任务执行完毕"、"生成了以下文件"）
+   - 文中的问号只是修辞用法或反问（如"为什么不呢？"）而非真正需要用户回答
+
+类型说明（仅 is_question=true 时需要）：
+- "choice"：Agent 给了2个及以上明确选项让用户选择
+- "input"：Agent 要求用户输入具体内容，没有给选项
+- "confirm"：Agent 在征求确认或许可（是/否）
+- "ranking"：Agent 要求用户对多个选项排序/排优先级
 
 返回格式：
 {{
+  "is_question": true/false,
   "type": "choice|input|confirm|ranking",
+  "question": "提取出的核心问题（简短摘要，不超过100字）",
   "options": [
     {{"label": "选项描述", "value": "唯一值"}}
   ],
-  "reasoning": "简短说明为什么这样分类"
+  "reasoning": "简短说明判断依据"
 }}
 
 规则：
-- 如果问题中包含选择意味（"还是"、"或者"、"哪种"、"哪个"），但选择项不明确，仍然归为 input
-- 只有 Agent 明确列举了 2 个及以上选项时，才归为 choice 或 ranking
-- 如果问题要求排序、比较优先级、排出顺序，则归为 ranking
-- options 数组中 value 用简短英文标识
-- 对于 confirm 类型，options 为空数组
-- 对于 ranking 类型，options 列表中的顺序不重要（用户会在 UI 中自行排序）
+- options 仅在 type 为 choice 或 ranking 时填充，其他类型为空数组
+- options 中 value 用简短英文标识
+- question 应该是 Agent 真正需要用户回答的问题，而非简单截取原文
 - 只返回 JSON，不要其他内容"""
 
         content = await achat(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=300,
+            max_tokens=400,
             timeout=settings.LLM_TIMEOUT,
         )
         if not content:
-            logger.warning("[DAG] _classify_approval_type: LLM 不可用，降级为 input")
-            return {"type": "input", "options": [], "reasoning": "LLM 不可用"}
+            logger.warning("[DAG] _analyze_agent_output: LLM 不可用，降级为无提问")
+            return None
+
+        # ── 提取 JSON ──
+        if "```" in content:
+            parts = content.split("```")
+            for p in parts:
+                p = p.strip()
+                if p.startswith("json"):
+                    p = p[4:]
+                if p.startswith("{"):
+                    content = p
+                    break
+
+        result = json.loads(content)
+
+        # 校验必要字段
+        if not isinstance(result, dict) or "is_question" not in result:
+            logger.warning(f"[DAG] _analyze_agent_output: LLM 返回格式异常: {content[:200]}")
+            return None
+
+        is_q = result.get("is_question", False)
+        extra = ""
+        if is_q:
+            rtype = result.get("type", "")
+            rquestion = str(result.get("question", ""))[:80]
+            extra = f", type={rtype}, question={rquestion}"
+        logger.info(
+            f"[DAG] Agent output analyzed: is_question={is_q}{extra}"
+            f", reasoning={str(result.get('reasoning', ''))[:80]}"
+        )
+        return result
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"[DAG] _analyze_agent_output: JSON 解析失败: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"[DAG] _analyze_agent_output: 分析异常: {e}")
+        return None
+
+
+# ── LLM 工具风险评估 ──
+
+# 已知安全的工具（不需要 LLM 评估）
+_SAFE_TOOLS = frozenset({
+    "Read", "Write", "Edit", "MultiEdit",
+    "List", "Search", "Grep", "Glob", "GlobTool",
+    "LS", "FileRead", "FileWrite",
+})
+
+
+async def _assess_tool_risk(tool_name: str, tool_input: dict) -> dict[str, Any] | None:
+    """调用 LLM 评估工具调用的风险等级
+
+    已知安全的工具直接放行，Bash 及未知工具调用 LLM 做语义风险判断。
+
+    Args:
+        tool_name: 工具名称（如 "Bash", "Read"）
+        tool_input: 工具参数
+
+    Returns:
+        None — 安全，无需审批
+        {"risk_level": "low"} — 低风险，记录但不阻塞
+        {"risk_level": "high", "type": "confirm", "title": "...", "description": "..."} — 需要审批
+    """
+    # 1. 已知安全的工具直接放行
+    if tool_name in _SAFE_TOOLS:
+        return None
+
+    # 2. 非 Bash 且不在安全列表中的工具 — 低风险放行（避免 LLM 调用开销）
+    #    未来可根据需要扩展更多工具的风险评估
+    if tool_name != "Bash":
+        return None
+
+    # 3. Bash 命令 — 调用 LLM 做语义风险评估
+    command = str(tool_input.get("command", ""))
+    if not command or len(command.strip()) < 3:
+        return None
+
+    try:
+        from app.core.llm.client import achat
+        from app.config.settings import settings
+
+        prompt = f"""评估以下 Bash 命令的风险等级。这是 AI Agent 在自动化工作流中执行的命令。
+
+命令：
+---
+{command[:1500]}
+---
+
+请判断该命令的风险等级，返回 JSON：
+
+风险等级说明：
+- "safe"：只读操作或完全无害的命令（如 ls、cat、echo、pwd、which、find、grep、wc、head、tail、curl 纯下载）
+- "low"：低风险修改操作（如创建文件/目录、复制文件、安装包、git 操作、设置环境变量）
+- "high"：高风险操作，可能导致不可逆的数据丢失或系统变更，需要用户审批：
+  - 删除文件/目录（rm、rmdir、del）
+  - 格式化/覆盖写入（mkfs、dd、> 覆盖重要文件）
+  - 权限修改（chmod 777 等）
+  - 危险的管道操作（curl | bash、wget | sh）
+  - 强制推送到远程仓库（git push --force）
+  - 终止系统进程（kill -9 系统进程）
+  - 任何递归/批量删除操作
+
+返回格式：
+{{
+  "risk_level": "safe|low|high",
+  "reasoning": "简短说明判断依据（不超过50字）"
+}}
+
+规则：
+- 只返回 JSON，不要其他内容
+- 如果命令是复合命令（&&、||、; 连接），只要其中任一部分是 high 风险，整体就是 high
+- 不确定时，倾向于 low 而非 high（宁可漏判也不误判）"""
+
+        content = await achat(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=200,
+            timeout=settings.LLM_TIMEOUT,
+        )
+        if not content:
+            logger.warning("[DAG] _assess_tool_risk: LLM 不可用，降级为放行")
+            return None
 
         # 提取 JSON
         if "```" in content:
@@ -890,9 +1080,26 @@ Agent 提问：
                     break
 
         result = json.loads(content)
-        logger.info(f"[DAG] Approval classified: {result.get('type')}, reason={result.get('reasoning')}")
-        return result
+        risk_level = result.get("risk_level", "safe")
+        reasoning = result.get("reasoning", "")
 
+        logger.info(f"[DAG] Tool risk assessed: {tool_name} risk={risk_level}, cmd={command[:80]}, reasoning={reasoning}")
+
+        if risk_level == "high":
+            return {
+                "risk_level": "high",
+                "type": "confirm",
+                "title": f"高风险操作: {command[:60]}",
+                "description": f"Agent 请求执行以下命令:\n```\n{command[:500]}\n```\n\n风险评估: {reasoning}",
+            }
+        elif risk_level == "low":
+            return {"risk_level": "low", "reasoning": reasoning}
+        # safe — 无需审批
+        return None
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"[DAG] _assess_tool_risk: JSON 解析失败: {e}")
+        return None
     except Exception as e:
-        logger.warning(f"[DAG] _classify_approval_type failed: {e}, 降级为 input")
-        return {"type": "input", "options": [], "reasoning": f"分类异常: {str(e)[:50]}"}
+        logger.warning(f"[DAG] _assess_tool_risk: 评估异常: {e}")
+        return None
