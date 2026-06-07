@@ -64,6 +64,18 @@ async def match(
         except Exception as e:
             logger.warning(f"[Match] 第零档异常: {e}")
 
+    # ── 用户指定了 team_id 但第零档未执行（matched_team 为 None），补全 Team 对象 ──
+    if team_id and not matched_team:
+        from app.services.team_service import get_team
+        matched_team = await get_team(session, team_id)
+        if not matched_team:
+            logger.warning(f"[Match] 用户指定的 Team 不存在: {team_id}")
+            team_id = None  # 降级为全局匹配
+        elif not matched_team.workflow_ids and not matched_team.node_definition_ids:
+            logger.info(f"[Match] 用户指定的 Team「{matched_team.name}」没有任何工作流和节点，降级为全局匹配")
+            matched_team = None
+            team_id = None
+
     # ── 有 Team scope：在 Team 范围内匹配 ──
     if team_id and matched_team:
         # 第一档：Team 范围内匹配 Workflow

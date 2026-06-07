@@ -1,10 +1,14 @@
 """Task 服务 — DAG 执行（Mock + Adapter 双模式）"""
 
+import json
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -85,6 +89,9 @@ async def start_task(
         task: Task 实例
         workflow_dag: 工作流的 DAG（JSONB dict），如无则用空 DAG
     """
+    from app.config.logging import get_task_logger
+    tlog = get_task_logger()
+
     if task.status not in ("pending", "paused"):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Task status is {task.status}, cannot start")
@@ -107,7 +114,10 @@ async def start_task(
                 NodeInstance(
                     id="agent_1",
                     definition_id=definition_id,
-                    config={"prompt_template": "{input}"},
+                    config={
+                        "prompt_template": "{input}",
+                        "allowed_tools": "Read,Write,Edit,MultiEdit,Bash,Glob,Grep,List,LS,FileRead,FileWrite",
+                    },
                 )
             ],
             edges=[],
@@ -119,6 +129,19 @@ async def start_task(
     # 提交状态更新
     await session.commit()
     await session.refresh(task)
+
+    # ── 任务执行调试日志：任务启动 ──
+    tlog.info("=" * 80)
+    tlog.info("TASK START | task_id=%s | mode=%s | team_id=%s",
+              task.id, task.execution_mode, task.team_id)
+    tlog.info("TASK START | title=%s", task.title)
+    tlog.info("TASK START | input_data=%s",
+              json.dumps(task.input_data, ensure_ascii=False, default=str)[:500])
+    tlog.info("TASK START | DAG nodes=%s",
+              [(n.id, n.definition_id) for n in dag.nodes])
+    tlog.info("TASK START | DAG edges=%s",
+              [(e.source_id, e.target_id) for e in dag.edges])
+    tlog.info("-" * 80)
 
     # 在后台执行 DAG
     event_bus = get_event_bus()
@@ -136,36 +159,29 @@ async def start_task(
         """后台任务 — 使用独立 session 更新状态"""
         async with async_session_factory() as bg_session:
             try:
-                # 获取 Team 的 team_prompt（如果有 team_id）
-                team_prompt = None
-                if task.team_id:
-                    from app.services.team_service import get_team
-                    team = await get_team(bg_session, task.team_id)
-                    if team and team.team_prompt:
-                        team_prompt = team.team_prompt
-                        logger.info(
-                            f"[Task] Using team_prompt from Team「{team.name}」"
-                        )
-
-                node_outputs = await execute_dag(
+                await execute_dag(
                     dag=dag,
                     event_bus=event_bus,
                     workflow_input=task.input_data or {},
                     task_id=task_id,
                     workspace_dir=workspace_dir,
                     mock_mode=False,
-                    team_prompt=team_prompt,
                 )
-                # 更新任务状态（如果 engine 没有更新）
+                # engine 已负责 DB 更新和事件发布，此处仅做兜底：
+                # 如果 engine 因异常路径未更新 DB，则在此补上
                 bg_task = await bg_session.get(Task, task_id)
                 if bg_task and bg_task.status == "running":
-                    # 收集产物文件列表
                     artifact_files = _collect_task_files(workspace_dir)
-                    node_outputs["_artifacts"] = artifact_files
-                    bg_task.output_data = node_outputs
+                    bg_task.output_data = {"_artifacts": artifact_files}
                     bg_task.status = "completed"
                     bg_task.completed_at = datetime.now(timezone.utc)
                     await bg_session.commit()
+                    # 发布兜底事件（engine 未发时生效）
+                    event_bus.emit(Event(
+                        event_type="task:completed",
+                        data={"task_id": str(task_id)},
+                        task_id=task_id,
+                    ))
             except DAGExecutionPaused as e:
                 bg_task = await bg_session.get(Task, task_id)
                 if bg_task and bg_task.status == "running":
@@ -174,12 +190,19 @@ async def start_task(
                     await bg_session.commit()
                 # 保留在 _running_tasks 中以便恢复
             except Exception as e:
+                logger.exception(f"[Task] Execution failed for task {task_id}")
                 bg_task = await bg_session.get(Task, task_id)
                 if bg_task and bg_task.status == "running":
                     bg_task.status = "failed"
                     bg_task.output_data = {"error": str(e)}
                     bg_task.completed_at = datetime.now(timezone.utc)
                     await bg_session.commit()
+                    # 发布兜底事件（engine 未发时生效）
+                    event_bus.emit(Event(
+                        event_type="task:failed",
+                        data={"task_id": str(task_id), "error": str(e)},
+                        task_id=task_id,
+                    ))
             finally:
                 _running_tasks.pop(task_id, None)
 
@@ -262,7 +285,7 @@ async def resume_task(session: AsyncSession, task: Task, workflow_dag: dict | No
 # ── 产物文件 ──
 
 # 产物收集黑名单（不展示的路径模式）
-_ARTIFACT_EXCLUDE = {".codebuddy", "__pycache__", ".git", "node_modules", ".venv", "venv", ".env"}
+_ARTIFACT_EXCLUDE = {".codebuddy", "skills", "__pycache__", ".git", "node_modules", ".venv", "venv", ".env"}
 
 
 def _collect_task_files(workspace_dir: str) -> list[dict[str, Any]]:

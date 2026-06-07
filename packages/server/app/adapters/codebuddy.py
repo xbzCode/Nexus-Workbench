@@ -37,6 +37,11 @@ from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+# 任务执行调试日志
+def _tlog() -> logging.Logger:
+    from app.config.logging import get_task_logger
+    return get_task_logger()
+
 
 def _render_template(template: str, input_data: dict, workspace: str) -> str:
     """渲染提示词模板，支持 {input.xxx} 点号访问 dict"""
@@ -50,6 +55,10 @@ def _render_template(template: str, input_data: dict, workspace: str) -> str:
             except KeyError:
                 return ""
 
+        def __format__(self, format_spec: str) -> str:
+            """当 {input} 不带属性访问时，渲染为自然可读的键值对"""
+            return _dict_to_readable(self)
+
     fmt_vars = {
         "input": DotDict(input_data),
         "workspace": workspace,
@@ -62,6 +71,24 @@ def _render_template(template: str, input_data: dict, workspace: str) -> str:
         return template.format(**fmt_vars)
     except (KeyError, IndexError):
         return template
+
+
+def _dict_to_readable(d: dict, indent: int = 0) -> str:
+    """将 dict 渲染为自然可读的文本（非 Python repr），供 Agent prompt 使用"""
+    lines = []
+    for k, v in d.items():
+        if isinstance(v, dict):
+            lines.append(f"{k}:")
+            lines.append(_dict_to_readable(v, indent + 1))
+        elif isinstance(v, list):
+            items = ", ".join(str(item) for item in v)
+            lines.append(f"{k}: [{items}]")
+        elif isinstance(v, str) and v:
+            lines.append(f"{k}: {v}")
+        elif v is not None:
+            lines.append(f"{k}: {v}")
+    prefix = "  " * indent
+    return "\n".join(f"{prefix}{line}" for line in lines)
 
 
 def _find_codebuddy() -> str | None:
@@ -128,8 +155,6 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
             "--output-format", "stream-json",
             "-y",
         ]
-        if config.get("system_prompt_append"):
-            cmd.extend(["--append-system-prompt", config["system_prompt_append"]])
         if config.get("allowed_tools"):
             cmd.extend(["--allowedTools", config["allowed_tools"]])
         if config.get("disallowed_tools"):
@@ -142,9 +167,10 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
         workspace = config.get("workspace", os.path.join(settings.WORKSPACE_DIR, session_id))
         os.makedirs(workspace, exist_ok=True)
 
-        # 1. 如果节点有 agent/skill/plugin 文件，复制到 workspace/.codebuddy/
+        # 1. 如果节点有 agent/skill/plugin 文件，复制到 workspace/.codebuddy/ 目录
         node_files = config.get("node_files", [])
         if node_files:
+            # node_files 统一写入 .codebuddy/ 目录（MVP 版本已验证可行）
             codebuddy_dir = os.path.join(workspace, ".codebuddy")
             for f in node_files:
                 dest = os.path.join(codebuddy_dir, f["path"])
@@ -156,12 +182,6 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
         prompt_template = config.get("prompt_template", "{input}")
         input_data = config.get("input_data", {})
         prompt = _render_template(prompt_template, input_data, workspace)
-
-        # 2.5 注入 Team 级领域知识（放在用户输入前面作为 system context）
-        team_prompt = config.get("team_prompt")
-        if team_prompt:
-            prompt = f"{team_prompt}\n\n---\n\n# 用户任务 / User Task\n\n{prompt}"
-            logger.info(f"[Adapter] Injected team_prompt ({len(team_prompt)} chars)")
 
         # 3. 构建命令
         cmd = self._build_cmd(prompt, config)
@@ -302,18 +322,24 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
     async def _parse_stream_json(self, data: dict, session: dict) -> AsyncIterator[AdapterEvent]:
         """解析单行 stream-json"""
         msg_type = data.get("type", "")
+        tlog = _tlog()
+        cb_sid = (session.get("codebuddy_session_id") or "")[:8]
 
         if msg_type == "system":
             subtype = data.get("subtype", "")
+            tlog.debug("STREAM-JSON | cb_sid=%s | type=system | subtype=%s", cb_sid, subtype)
 
             if subtype == "init":
                 cb_session = data.get("session_id")
                 if cb_session:
                     session["codebuddy_session_id"] = cb_session
+                    tlog.debug("STREAM-JSON | cb_sid=%s | init session_id=%s", cb_sid, cb_session)
 
             elif subtype == "result":
                 session["_completed"] = True
                 result_text = data.get("result", "")
+                tlog.info("STREAM-JSON | cb_sid=%s | RESULT | result_len=%d | cost_usd=%s",
+                          cb_sid, len(result_text), data.get("total_cost_usd"))
                 yield ExecutionCompletedEvent(output={
                     "result": result_text,
                     "session_id": data.get("session_id"),
@@ -325,11 +351,27 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
             content_blocks = message.get("content", [])
 
             if isinstance(content_blocks, str):
+                tlog.debug("STREAM-JSON | cb_sid=%s | type=assistant | block_type=str | len=%d",
+                           cb_sid, len(content_blocks))
                 yield ProgressUpdateEvent(content=content_blocks)
                 return
 
             if not isinstance(content_blocks, list):
                 return
+
+            block_summary = []
+            for block in content_blocks:
+                bt = block.get("type", "unknown")
+                if bt == "thinking":
+                    block_summary.append(f"thinking({len(block.get('thinking', ''))})")
+                elif bt == "text":
+                    block_summary.append(f"text({len(block.get('text', ''))})")
+                elif bt == "tool_use":
+                    block_summary.append(f"tool_use({block.get('name', '?')})")
+                else:
+                    block_summary.append(bt)
+            tlog.debug("STREAM-JSON | cb_sid=%s | type=assistant | blocks=%s",
+                       cb_sid, ", ".join(block_summary))
 
             for block in content_blocks:
                 block_type = block.get("type", "")

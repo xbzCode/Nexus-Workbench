@@ -16,7 +16,7 @@ import TaskQueue from "@/components/chat/TaskQueue";
 import { TeamSelector } from "@/components/team/TeamSelector";
 import { DescribeNodeResult, DescribeWorkflowResult } from "@/components/chat/DescribeResult";
 import {
-  ArrowRight, Zap, Slash, ExternalLink, CheckCircle2, XCircle,
+  ArrowRight, Zap, ExternalLink, CheckCircle2, XCircle,
   Loader2, Brain, AlertCircle, PauseCircle,
 } from "lucide-react";
 import type {
@@ -25,14 +25,7 @@ import type {
 } from "@/lib/types";
 import type { TaskQueueItem, ExecutionLog } from "@/types/task-queue";
 
-// ── Slash commands ──
-const SLASH_COMMANDS = [
-  { cmd: "/node", desc: "用自然语言创建节点" },
-  { cmd: "/workflow", desc: "用自然语言创建工作流" },
-  { cmd: "/rollback", desc: "回滚到指定步骤" },
-  { cmd: "/debug", desc: "给下个节点设断点" },
-  { cmd: "/cancel", desc: "取消当前任务" },
-];
+
 
 // ── Animation variants ──
 const customEase: [number, number, number, number] = [0.22, 0.61, 0.36, 1];
@@ -148,7 +141,6 @@ export default function ChatPage() {
   const [tasks, setTasks] = useState<TaskQueueItem[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string>();
   const [input, setInput] = useState("");
-  const [showSlash, setShowSlash] = useState(false);
   const [focused, setFocused] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
 
@@ -186,7 +178,7 @@ export default function ChatPage() {
   const showTitleProminently = tasks.length === 0 && !describeNodeResult && !describeWorkflowResult;
 
   // ── SSE for active executing task ──
-  const sseTaskId = activeTask?.status === "executing" ? activeTask.taskId : undefined;
+  const sseTaskId = (activeTask?.status === "executing" || activeTask?.status === "paused") ? activeTask.taskId : undefined;
   const { events: sseEvents } = useSSE(
     sseTaskId ? "/api/events/stream" : null,
     { taskId: sseTaskId }
@@ -232,6 +224,34 @@ export default function ChatPage() {
     return () => { active = false; clearInterval(timer); };
   }, [activeTask?.taskId, activeTask?.status, activeTask?.id, updateExecState, updateTask]);
 
+  // ── Task status polling fallback — sync DB status when executing ──
+  useEffect(() => {
+    if (!activeTask?.taskId || activeTask.status !== "executing") return;
+    let active = true;
+    const pollStatus = async () => {
+      try {
+        const res = await api.get<APIResponse<{ status: string; output_data?: Record<string, unknown> }>>(`/tasks/${activeTask.taskId}`);
+        if (active && res.data) {
+          const dbStatus = res.data.status;
+          if (dbStatus === "completed") {
+            updateTask(activeTask.id, { status: "completed" });
+            updateExecState(activeTask.id, { completed: true });
+          } else if (dbStatus === "failed") {
+            const error = res.data.output_data?.error ? String(res.data.output_data.error) : "Task execution failed";
+            updateTask(activeTask.id, { status: "failed", error });
+            updateExecState(activeTask.id, { completed: true });
+          } else if (dbStatus === "paused") {
+            updateTask(activeTask.id, { status: "paused" });
+          }
+        }
+      } catch { /* ignore */ }
+    };
+    // 5秒后首次轮询，之后每8秒轮询一次
+    const timer = setInterval(pollStatus, 8000);
+    const initial = setTimeout(pollStatus, 5000);
+    return () => { active = false; clearInterval(timer); clearTimeout(initial); };
+  }, [activeTask?.taskId, activeTask?.status, activeTask?.id, updateTask, updateExecState]);
+
   // ── SSE event processing — only process NEW events ──
   useEffect(() => {
     if (!activeTask || activeTask.status !== "executing") return;
@@ -257,14 +277,30 @@ export default function ChatPage() {
           const summary = output?.summary as string | undefined;
           content = `Node ${data.node_id} completed${summary ? ` — ${summary}` : ""}`; break;
         }
-        case "dag:node_failed": content = `Node ${data.node_id} failed: ${data.error}`; break;
-        case "dag:node_skipped": content = `Node ${data.node_id} skipped: ${data.reason}`; break;
-        case "dag:level_completed": content = `Level ${data.level} completed`; break;
+        case "dag:node_failed":
+          content = `Node ${data.node_id} failed: ${data.error}`;
+          updateTask(activeTask.id, { status: "failed", error: String(data.error || "Node execution failed") });
+          updateExecState(activeTask.id, { completed: true });
+          break;
         case "dag:execution_completed":
           content = "Workflow execution complete";
           updateTask(activeTask.id, { status: "completed" });
           updateExecState(activeTask.id, { completed: true });
           break;
+        case "task:completed":
+          // 兜底事件：确保即使 dag:execution_completed 丢失，也能同步状态
+          content = "Task completed";
+          updateTask(activeTask.id, { status: "completed" });
+          updateExecState(activeTask.id, { completed: true });
+          break;
+        case "task:failed":
+          // 兜底事件：确保即使 dag:node_failed 丢失，也能同步状态
+          content = `Task failed: ${data.error || "Unknown error"}`;
+          updateTask(activeTask.id, { status: "failed", error: String(data.error || "Task execution failed") });
+          updateExecState(activeTask.id, { completed: true });
+          break;
+        case "dag:node_skipped": content = `Node ${data.node_id} skipped: ${data.reason}`; break;
+        case "dag:level_completed": content = `Level ${data.level} completed`; break;
         case "approval:created": content = `Approval required: ${data.title}`; eventLabel = "approval"; break;
         case "approval:resolved": content = `Approval resolved: ${data.status}`; break;
         default: content = JSON.stringify(data).slice(0, 100);
@@ -312,31 +348,10 @@ export default function ChatPage() {
 
   const handleInput = useCallback((value: string) => {
     setInput(value);
-    setShowSlash(value.startsWith("/") && value.length < 20);
   }, []);
 
   /** Submit a new task — always creates a queue entry and immediately re-enables input */
   const handleSubmit = useCallback(async (text: string) => {
-    setShowSlash(false);
-
-    // Handle /node and /workflow commands (separate from task queue)
-    if (text.startsWith("/node ")) {
-      const desc = text.slice(6).trim();
-      if (!desc) return;
-      const result = await describeNode(desc);
-      if (result) setDescribeNodeResult(result);
-      setInput("");
-      return;
-    }
-    if (text.startsWith("/workflow ")) {
-      const desc = text.slice(10).trim();
-      if (!desc) return;
-      const result = await describeWorkflow(desc);
-      if (result) setDescribeWorkflowResult(result);
-      setInput("");
-      return;
-    }
-
     // Create new task queue item
     const newTask: TaskQueueItem = {
       id: crypto.randomUUID(),
@@ -367,15 +382,12 @@ export default function ChatPage() {
         matchResult: { mode: "bare_agent", reasoning: "Match service unavailable, will use bare Agent mode" },
       });
     }
-  }, [doMatch, describeNode, describeWorkflow, updateTask]);
+  }, [doMatch, updateTask]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (input.trim()) handleSubmit(input.trim());
-    }
-    if (e.key === "Escape") {
-      setShowSlash(false);
     }
   }, [input, handleSubmit]);
 
@@ -513,35 +525,10 @@ export default function ChatPage() {
           {/* Input area — always available */}
           <div className="w-full max-w-[560px] mt-6">
             <div className="relative">
-              {/* Slash command menu */}
-              <AnimatePresence>
-                {showSlash && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                    transition={{ duration: 0.18 }}
-                    className="absolute bottom-full left-0 z-10 mb-2 w-72 rounded-xl border border-border bg-popover p-1.5 shadow-xl shadow-black/20"
-                  >
-                    <div className="mb-1 flex items-center gap-1.5 px-2.5 py-1.5">
-                      <Slash className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-[11px] font-medium text-muted-foreground">Commands</span>
-                    </div>
-                    {SLASH_COMMANDS.map((cmd) => (
-                      <button key={cmd.cmd}
-                        className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left hover:bg-surface-hover transition-colors"
-                        onClick={() => { setInput(cmd.cmd + " "); setShowSlash(false); textareaRef.current?.focus(); }}>
-                        <span className="font-mono text-[13px] font-semibold text-brand">{cmd.cmd}</span>
-                        <span className="text-[12px] text-muted-foreground">{cmd.desc}</span>
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
 
-              {/* Team selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground shrink-0">Team:</span>
+
+              {/* Team quick select */}
+              <div className="mb-1.5">
                 <TeamSelector value={selectedTeamId} onChange={setSelectedTeamId} />
               </div>
 
@@ -557,7 +544,7 @@ export default function ChatPage() {
                   onKeyDown={handleKeyDown}
                   onFocus={() => setFocused(true)}
                   onBlur={() => setFocused(false)}
-                  placeholder="Describe your task... type / for commands"
+                  placeholder="Describe your task..."
                   rows={1}
                   className="max-h-40 min-h-[28px] flex-1 resize-none border-0 bg-transparent text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-0"
                   style={{ height: "auto" }}
@@ -587,7 +574,6 @@ export default function ChatPage() {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.3 }}
               >
-                <span>Press <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">/</kbd> for commands</span>
                 <span>Press <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">Enter</kbd> to send</span>
               </motion.div>
             </div>
@@ -703,7 +689,7 @@ export default function ChatPage() {
 
                     {/* Log entries */}
                     <div className="max-h-[260px] overflow-y-auto px-5 py-3">
-                      {activeExec.logs.length === 0 && (
+                      {activeExec.logs.length === 0 && !activeExec.completed && (
                         <div className="flex items-center gap-2 py-6 text-xs text-muted-foreground">
                           <Loader2 className="h-3 w-3 animate-spin" />Waiting for events...
                         </div>

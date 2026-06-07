@@ -35,6 +35,11 @@ from app.schemas.workflow import DAGDefinition, NodeInstance
 
 logger = logging.getLogger(__name__)
 
+# 任务执行调试日志（写入 task_execution.log）
+def _tlog() -> logging.Logger:
+    from app.config.logging import get_task_logger
+    return get_task_logger()
+
 
 class DAGExecutionError(Exception):
     """DAG 执行错误"""
@@ -56,7 +61,6 @@ async def execute_dag(
     task_id: uuid.UUID | None = None,
     workspace_dir: str | None = None,
     mock_mode: bool = True,
-    team_prompt: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """执行 DAG
 
@@ -67,7 +71,6 @@ async def execute_dag(
         task_id: 任务ID（Adapter 模式需要，用于更新 DB）
         workspace_dir: 工作目录（Adapter 模式需要）
         mock_mode: True=Mock 执行，False=真实 Adapter 执行
-        team_prompt: Team 级领域知识，注入到 Adapter 的 system prompt
 
     Returns:
         每个节点的输出 {node_id: output_dict}
@@ -126,20 +129,19 @@ async def execute_dag(
                         workspace_dir=workspace_dir,
                         node_map=node_map,
                         bg_session_factory=bg_session_factory,
-                        team_prompt=team_prompt,
                     )
                 node_outputs[node_id] = result
             except Exception as e:
                 node_outputs[node_id] = {"status": "failed", "summary": str(e)}
+                # Adapter 模式下先更新 DB，再发事件
+                if not mock_mode and task_id and bg_session_factory:
+                    await _update_task_status(task_id, "failed", {"error": str(e)}, bg_session_factory)
                 event_bus.emit(Event(
                     event_type="dag:node_failed",
                     data={"node_id": node_id, "error": str(e)},
                     source=node_id,
                     task_id=task_id,
                 ))
-                # Adapter 模式下更新 DB
-                if not mock_mode and task_id and bg_session_factory:
-                    await _update_task_status(task_id, "failed", {"error": str(e)}, bg_session_factory)
                 return node_outputs
 
         event_bus.emit(Event(
@@ -148,11 +150,11 @@ async def execute_dag(
             task_id=task_id,
         ))
 
-    event_bus.emit(Event(event_type="dag:execution_completed", data={"outputs": list(node_outputs.keys())}, task_id=task_id))
-
-    # Adapter 模式下更新 DB
+    # Adapter 模式下先更新 DB，再发事件（确保前端收到事件时 DB 已更新）
     if not mock_mode and task_id and bg_session_factory:
         await _update_task_status(task_id, "completed", node_outputs, bg_session_factory)
+
+    event_bus.emit(Event(event_type="dag:execution_completed", data={"outputs": list(node_outputs.keys())}, task_id=task_id))
 
     return node_outputs
 
@@ -229,14 +231,17 @@ async def _execute_node_via_adapter(
     workspace_dir: str | None = None,
     node_map: dict[str, NodeInstance] | None = None,
     bg_session_factory=None,
-    team_prompt: str | None = None,
 ) -> dict[str, Any]:
     """通过真实 Adapter 执行单个节点"""
+    tlog = _tlog()
+    tlog.info("─" * 60)
+    tlog.info("NODE START | task_id=%s | node_id=%s", task_id, node_id)
     event_bus.emit(Event(event_type="dag:node_started", data={"node_id": node_id}, source=node_id, task_id=task_id))
 
     # 1. 评估条件边
     should_execute = _evaluate_incoming_conditions(ctx, node_id, node_outputs, skipped_nodes)
     if not should_execute:
+        tlog.info("NODE SKIPPED | task_id=%s | node_id=%s | reason=条件不满足", task_id, node_id)
         event_bus.emit(Event(
             event_type="dag:node_skipped",
             data={"node_id": node_id, "reason": "条件不满足"},
@@ -248,6 +253,8 @@ async def _execute_node_via_adapter(
 
     # 2. 计算输入
     node_input = compute_node_input(ctx, node_id, node_outputs, workflow_input)
+    tlog.info("NODE INPUT | task_id=%s | node_id=%s | input=%s",
+              task_id, node_id, json.dumps(node_input, ensure_ascii=False, default=str)[:500])
 
     # 3. 获取节点实例
     node_instance = node_map.get(node_id) if node_map else None
@@ -269,6 +276,9 @@ async def _execute_node_via_adapter(
 
     # 5. 合并配置
     config = {**(node_def.default_config or {}), **node_instance.config}
+    tlog.info("NODE DEF | task_id=%s | node_id=%s | def_name=%s | def_id=%s | adapter=%s | is_skill=%s",
+              task_id, node_id, node_def.name, node_def.id, node_def.adapter_type,
+              bool((node_def.resources or {}).get("skill_entry")))
 
     # 6. 获取 Adapter
     from app.adapters.registry import get_adapter, list_adapters
@@ -303,7 +313,7 @@ async def _execute_node_via_adapter(
     # 解析 source_dir（DB 存的是相对路径，需要转为绝对路径）
     resolved_source_dir = _resolve_source_dir(node_def.source_dir)
     if is_skill_node and workspace_dir:
-        await _prepare_skill_workspace(node_def, workspace_dir, node_input, resolved_source_dir)
+        await _prepare_skill_workspace(node_def, workspace_dir, node_input, resolved_source_dir, node_id)
         await _install_pip_requirements(node_def, resolved_source_dir)
 
     # 7. 构建 Adapter 配置
@@ -312,12 +322,14 @@ async def _execute_node_via_adapter(
         "input_data": node_input,
         "allowed_tools": config.get("allowed_tools", ""),
         "workspace": workspace_dir or os.path.join(".", "workspace"),
-        "team_prompt": team_prompt,  # Team 级领域知识注入
     }
 
-    # 7.1 skill 节点：传递 skill_dir + node_files + 用短 prompt 引导 Agent 读取指令文件
-    if is_skill_node:
-        adapter_config["skill_dir"] = resolved_source_dir
+    # 7.1 skill 节点：写入引导指令，让 Agent 读取 node-config.json 后定位并执行 SKILL.md
+    # MVP 版本已验证可行的模式：短 prompt → Agent 读 task-instructions.md → 读 node-config.json
+    # → 获取 skill_path（绝对路径）→ 读 SKILL.md → 执行
+    if is_skill_node and resolved_source_dir:
+        # skill_dir 指向 workspace 本地路径（node_files 已把 SKILL.md 等复制到 .codebuddy/）
+        adapter_config["skill_dir"] = os.path.join(workspace_dir, ".codebuddy")
         # 加载 node_files 并放入 adapter_config
         if bg_session_factory:
             async with bg_session_factory() as fs:
@@ -331,11 +343,10 @@ async def _execute_node_via_adapter(
                     {"path": f.path, "content": f.content}
                     for f in node_files
                 ]
-        # 用短 prompt 引导 Agent 读取 task-instructions.md
+        # 用短 prompt 引导 Agent 读取指令文件，长 prompt 通过 cbc -p 传递会被截断
         adapter_config["prompt_template"] = (
-            "请阅读并执行 .codebuddy/task-instructions.md 中的指令，然后执行 skill。"
             "Read and follow .codebuddy/task-instructions.md, then execute the skill. "
-            "用户输入 / User input: {input}"
+            "User input: {input}"
         )
 
     # 8. 创建 TaskStep
@@ -357,7 +368,13 @@ async def _execute_node_via_adapter(
 
     # 9. 启动 Adapter 会话
     logger.info(f"[DAG] Starting adapter session for node={node_id}, adapter={adapter_type}")
+    tlog.info("ADAPTER START | task_id=%s | node_id=%s | adapter=%s | workspace=%s",
+              task_id, node_id, adapter_type, adapter_config.get("workspace"))
+    tlog.debug("ADAPTER CONFIG | prompt_template=%s",
+               str(adapter_config.get("prompt_template", ""))[:200])
     session_id = await adapter.start_session(adapter_config)
+    tlog.info("ADAPTER SESSION | task_id=%s | node_id=%s | session_id=%s",
+              task_id, node_id, session_id)
 
     # 10. 收集事件 + 审批循环
     # Adapter 层不再做提问检测，所有 agent text 统一作为 ProgressUpdateEvent。
@@ -373,14 +390,20 @@ async def _execute_node_via_adapter(
     all_progress_texts: list[str] = []
     all_thinking_texts: list[str] = []
 
+    round_num = 0
     while True:
+        round_num += 1
         round_progress: list[str] = []
         round_thinking: list[str] = []
         output = {}
+        tlog.info("ROUND START | task_id=%s | node_id=%s | round=%d",
+                  task_id, node_id, round_num)
 
         async for event in adapter.on_event(session_id):
             if isinstance(event, AgentThinkingEvent):
                 round_thinking.append(event.content)
+                tlog.debug("EVENT THINKING | task_id=%s | node_id=%s | round=%d | len=%d | preview=%s",
+                           task_id, node_id, round_num, len(event.content), event.content[:100])
                 event_bus.emit(Event(
                     event_type="node:thinking",
                     data={"node_id": node_id, "content": event.content[:200]},
@@ -390,6 +413,8 @@ async def _execute_node_via_adapter(
 
             elif isinstance(event, ProgressUpdateEvent):
                 round_progress.append(event.content)
+                tlog.debug("EVENT PROGRESS | task_id=%s | node_id=%s | round=%d | len=%d | preview=%s",
+                           task_id, node_id, round_num, len(event.content), event.content[:100])
                 event_bus.emit(Event(
                     event_type="node:progress",
                     data={"node_id": node_id, "content": event.content[:200]},
@@ -399,7 +424,13 @@ async def _execute_node_via_adapter(
 
             elif isinstance(event, ToolUseEvent):
                 # 工具调用 → LLM 风险评估 → 高风险则创建审批
+                tlog.info("EVENT TOOL_USE | task_id=%s | node_id=%s | round=%d | tool=%s | input=%s",
+                          task_id, node_id, round_num, event.tool_name,
+                          json.dumps(event.tool_input, ensure_ascii=False, default=str)[:200])
                 risk = await _assess_tool_risk(event.tool_name, event.tool_input)
+                tlog.info("TOOL RISK | task_id=%s | node_id=%s | tool=%s | risk=%s",
+                          task_id, node_id, event.tool_name,
+                          risk.get("risk_level") if risk else "safe")
                 if risk and risk.get("risk_level") == "high":
                     approval_count += 1
                     event_bus.emit(Event(
@@ -447,9 +478,23 @@ async def _execute_node_via_adapter(
         all_progress_texts.extend(round_progress)
         all_thinking_texts.extend(round_thinking)
 
+        tlog.info("ROUND SUMMARY | task_id=%s | node_id=%s | round=%d | progress_chunks=%d | thinking_chunks=%d | output=%s",
+                  task_id, node_id, round_num, len(round_progress), len(round_thinking),
+                  json.dumps(output, ensure_ascii=False, default=str)[:200])
+
         # 11. 分析 Agent 输出是否包含提问
+        # 同时检查 progress（text 块）和 thinking（推理模型的思考块），
+        # 因为 deepseek-reasoner 等推理模型可能将全部输出放在 thinking 块中
         round_text = "\n".join(round_progress)
-        analysis = await _analyze_agent_output(round_text)
+        round_thinking_text = "\n".join(round_thinking)
+        # 以 progress 为主，thinking 为补充（避免推理模型的输出全在 thinking 中）
+        analysis_text = round_text if round_text else round_thinking_text
+        tlog.info("ANALYZE QUESTION | task_id=%s | node_id=%s | round=%d | text_len=%d | thinking_len=%d | preview=%s",
+                  task_id, node_id, round_num, len(round_text), len(round_thinking_text), analysis_text[:300])
+        analysis = await _analyze_agent_output(analysis_text)
+        tlog.info("ANALYZE RESULT | task_id=%s | node_id=%s | round=%d | analysis=%s",
+                  task_id, node_id, round_num,
+                  json.dumps(analysis, ensure_ascii=False, default=str) if analysis else "None")
 
         if analysis and analysis.get("is_question"):
             # Agent 在提问，创建审批等待用户回答
@@ -500,12 +545,18 @@ async def _execute_node_via_adapter(
             continue
         else:
             # Agent 未提问，正常完成
+            tlog.info("ROUND COMPLETE | task_id=%s | node_id=%s | round=%d | no_question_detected",
+                      task_id, node_id, round_num)
             break
 
     # 12. 构建输出
+    tlog.info("NODE COMPLETED | task_id=%s | node_id=%s | approval_count=%d | progress_chunks=%d | thinking_chunks=%d",
+              task_id, node_id, approval_count, len(all_progress_texts), len(all_thinking_texts))
     result_text = "\n".join(all_progress_texts) if all_progress_texts else ""
     result_thinking = "\n".join(all_thinking_texts) if all_thinking_texts else ""
     summary = result_text or result_thinking or "节点执行完成"
+    tlog.info("NODE OUTPUT | task_id=%s | node_id=%s | text_len=%d | thinking_len=%d | summary=%s",
+              task_id, node_id, len(result_text), len(result_thinking), summary[:200])
 
     final_output = {
         "status": "completed",
@@ -613,7 +664,10 @@ async def _create_and_wait_approval(
     event_bus: EventBus | None = None,
 ) -> uuid.UUID:
     """创建审批记录，返回 approval_id，并通过事件总线推送通知"""
+    tlog = _tlog()
     if not task_id or not bg_session_factory:
+        tlog.warning("APPROVAL SKIPPED | task_id=%s | node_id=%s | reason=no_task_id_or_session_factory",
+                     task_id, node_id)
         return uuid.uuid4()
 
     async with bg_session_factory() as session:
@@ -641,6 +695,9 @@ async def _create_and_wait_approval(
         await session.commit()
         await session.refresh(approval)
 
+        tlog.info("APPROVAL CREATED | task_id=%s | node_id=%s | approval_id=%s | type=%s | title=%s | desc=%s",
+                  task_id, node_id, approval.id, approval_type, title, description[:200])
+
         # 推送审批创建事件
         if event_bus:
             event_bus.emit(Event(
@@ -667,7 +724,9 @@ async def _wait_for_approval_db(
 ) -> dict | None:
     """轮询 DB 等待审批结果（超时暂停任务，等待用户手动恢复）"""
     import time
+    tlog = _tlog()
     start = time.time()
+    tlog.info("APPROVAL WAIT | approval_id=%s | timeout=%ds", approval_id, timeout)
 
     while time.time() - start < timeout:
         if not bg_session_factory:
@@ -678,11 +737,16 @@ async def _wait_for_approval_db(
             from app.models.approval import Approval
             approval = await session.get(Approval, approval_id)
             if approval and approval.status in ("approved", "rejected"):
+                elapsed = time.time() - start
+                tlog.info("APPROVAL RESOLVED | approval_id=%s | status=%s | elapsed=%.1fs | result=%s",
+                          approval_id, approval.status, elapsed,
+                          json.dumps(approval.result, ensure_ascii=False, default=str)[:200])
                 return approval.result or {"approved": approval.status == "approved"}
 
         await asyncio.sleep(1)
 
     # 超时暂停 — 不自动通过，等待用户手动恢复
+    tlog.warning("APPROVAL TIMEOUT | approval_id=%s | timeout=%ds", approval_id, timeout)
     if bg_session_factory:
         async with bg_session_factory() as session:
             from app.models.approval import Approval
@@ -715,36 +779,39 @@ async def _update_task_status(
 
 # ── Skill 节点 workspace 准备 ──
 
-# task-instructions.md 模板（引导 Agent 正确读取并执行 skill）
-TASK_INSTRUCTIONS_TEMPLATE = """# AgentFlow Skill Node — 任务指令 / Task Instructions
+def _build_task_instructions() -> str:
+    """构建 task-instructions.md 内容（引导 Agent 正确读取并执行 skill）
 
-你正在 AgentFlow 工作流中执行一个 Skill 节点。请严格按以下步骤操作：
+    所有 skill 文件（SKILL.md, references/, assets/ 等）已通过 node_files
+    复制到 workspace/.codebuddy/ 目录，Agent 无需访问外部路径。
+    """
+    return """# AgentFlow Skill Node — Task Instructions
+
 You are executing a skill-based node in an AgentFlow workflow. Follow these steps IN ORDER:
 
-## 步骤 1 / Step 1
-使用 Read 工具读取当前工作区的 `.codebuddy/node-config.json`。
+## Step 1
 Use the Read tool to read `.codebuddy/node-config.json` in the current workspace.
-该文件包含 `skill_path`、`skill_entry`、`skill_dir` 和 `input_data`。
+This file contains `skill_path`, `skill_entry`, `skill_dir`, and `input_data`.
 
-## 步骤 2 / Step 2
-使用 Read 工具读取配置中 `skill_path/skill_entry` 指向的 skill 文件，并严格按照其指令执行。
-Use the Read tool to read the skill file at `skill_path/skill_entry` from the config.
+## Step 2
+Use the Read tool to read the skill file at `.codebuddy/{skill_entry}` from the config.
 Follow its instructions EXACTLY.
 
-## 步骤 3 / Step 3
-执行 skill。将所有 `${SKILL_DIR}` 替换为配置中的 `skill_dir` 值。
-如果 skill 需要用户选择且你处于自动模式，使用默认/推荐选项。
+## Step 3
+Execute the skill. All skill files (references/, assets/, templates/) are in `.codebuddy/`.
+Replace `${SKILL_DIR}` with `.codebuddy` when resolving paths.
 
-## 关键规则 / Critical Rules
-- 不要使用 Skill 工具来调用 skill — 使用 Read 工具读取 SKILL.md 内容
-- 不要搜索 skill — 精确路径在 node-config.json 中
-- 不要跳过读取 node-config.json — 始终从步骤 1 开始
-- 严格按照加载的 skill 工作流执行，不要自行发挥
-- 执行 bash 命令时，将 SKILL_DIR 替换为配置中的实际路径
+## Path Resolution Rules
+- All skill files are in the `.codebuddy/` directory within the current workspace
+- `skill_path` and `skill_dir` point to `.codebuddy/`
+- Relative paths in SKILL.md (e.g., `references/xxx`, `assets/xxx`) should be resolved as `.codebuddy/references/xxx`, `.codebuddy/assets/xxx`
+
+## Critical Rules
 - Do NOT use the Skill tool to invoke skills — use Read tool to load SKILL.md content
 - Do NOT search for the skill — the exact path is in node-config.json
 - Do NOT skip reading node-config.json — always start from Step 1
 - Follow the loaded skill workflow exactly, do NOT improvise
+- All paths are within the current workspace directory
 """
 
 
@@ -759,12 +826,14 @@ async def _prepare_skill_workspace(
     workspace_dir: str,
     input_data: dict,
     resolved_source_dir: str | None,
+    node_id: str,
 ) -> None:
     """为 skill 节点准备工作空间
 
-    写入两个文件到 workspace/.codebuddy/：
-    1. node-config.json — 包含 skill_path、skill_dir、input_data
-    2. task-instructions.md — Agent 启动后的第一步指令
+    在 workspace/.codebuddy/ 下写入配置、指令和 SKILL.md 文件。
+    node_files 已将 references/、assets/、templates/ 等复制到 .codebuddy/，
+    但 SKILL.md 存于 node_definitions.skill_md 字段，需单独写入。
+    skill_path/skill_dir 指向 workspace 本地路径，Agent 无需访问外部目录。
     """
     import json as json_mod
     resources = node_def.resources or {}
@@ -773,22 +842,24 @@ async def _prepare_skill_workspace(
         logger.warning(f"[DAG] Skill node {node_def.name} has no resolvable source_dir, skipping workspace prep")
         return
 
-    codebuddy_dir = os.path.join(workspace_dir, ".codebuddy")
-    os.makedirs(codebuddy_dir, exist_ok=True)
+    # 配置目录：统一使用 .codebuddy/
+    config_dir = os.path.join(workspace_dir, ".codebuddy")
+    os.makedirs(config_dir, exist_ok=True)
 
     # 1. 写入 node-config.json
-    config_path = os.path.join(codebuddy_dir, "node-config.json")
+    #    skill_path/skill_dir 指向 workspace 本地路径（node_files 已把所有文件复制到此）
+    config_path = os.path.join(config_dir, "node-config.json")
     node_config = {
         "skill_name": node_def.name,
-        "skill_path": resolved_source_dir,
-        "skill_dir": resolved_source_dir,
+        "skill_path": config_dir,
+        "skill_dir": config_dir,
         "skill_entry": resources.get("skill_entry", "SKILL.md"),
         "input_data": input_data,
     }
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json_mod.dump(node_config, f, ensure_ascii=False, indent=2)
-        logger.info(f"[DAG] Skill node-config written: {config_path}")
+        logger.info(f"[DAG] Skill node-config written: {config_path}, skill_path={resolved_source_dir}")
     except (TypeError, ValueError) as e:
         logger.error(f"[DAG] Failed to serialize node-config.json: {e}, input_data keys={list(input_data.keys())}")
         # 降级：去掉 input_data 中不可序列化的值
@@ -798,10 +869,19 @@ async def _prepare_skill_workspace(
             json_mod.dump(safe_config, f, ensure_ascii=False, indent=2)
         logger.info(f"[DAG] Skill node-config written (fallback): {config_path}")
 
-    # 2. 写入 task-instructions.md
-    instructions_path = os.path.join(codebuddy_dir, "task-instructions.md")
+    # 2. 写入 SKILL.md（内容来自 DB 的 node_definitions.skill_md）
+    #    node_files 表不包含 SKILL.md（syncer 显式跳过），需单独写入
+    skill_md_content = getattr(node_def, "skill_md", None)
+    if skill_md_content:
+        skill_md_path = os.path.join(config_dir, "SKILL.md")
+        with open(skill_md_path, "w", encoding="utf-8") as f:
+            f.write(skill_md_content)
+        logger.info(f"[DAG] SKILL.md written: {skill_md_path} ({len(skill_md_content)} chars)")
+
+    # 3. 写入 task-instructions.md
+    instructions_path = os.path.join(config_dir, "task-instructions.md")
     with open(instructions_path, "w", encoding="utf-8") as f:
-        f.write(TASK_INSTRUCTIONS_TEMPLATE)
+        f.write(_build_task_instructions())
 
     logger.info(f"[DAG] Task instructions written: {instructions_path}")
 
@@ -899,7 +979,7 @@ async def _analyze_agent_output(agent_text: str) -> dict[str, Any] | None:
     # ── 快速排除：纯陈述性文本启发式 ──
     # 如果文本中完全没有问号，且没有任何疑问倾向词，大概率不是提问
     has_question_mark = "？" in agent_text or "?" in agent_text
-    _hint_words = ["请选择", "请确认", "是否", "你想", "你希望", "哪个", "哪种",
+    _hint_words = ["请选择", "请确认", "请问", "是否", "你想", "你希望", "哪个", "哪种",
                    "would you", "should i", "do you want", "please choose"]
     has_hint = any(w in agent_text.lower() for w in _hint_words)
     if not has_question_mark and not has_hint and len(agent_text) < 80:
@@ -912,9 +992,9 @@ async def _analyze_agent_output(agent_text: str) -> dict[str, Any] | None:
         prompt = f"""分析以下 AI Agent 的输出，判断它是否在向用户提问/请求指示。
 
 Agent 输出：
----
+<<<AGENT_OUTPUT_START>>>
 {agent_text[:2000]}
----
+<<<AGENT_OUTPUT_END>>>
 
 请判断并返回 JSON：
 
@@ -1048,9 +1128,9 @@ async def _assess_tool_risk(tool_name: str, tool_input: dict) -> dict[str, Any] 
         prompt = f"""评估以下 Bash 命令的风险等级。这是 AI Agent 在自动化工作流中执行的命令。
 
 命令：
----
+<<<COMMAND_START>>>
 {command[:1500]}
----
+<<<COMMAND_END>>>
 
 请判断该命令的风险等级，返回 JSON：
 

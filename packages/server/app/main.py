@@ -29,18 +29,12 @@ async def lifespan(app: FastAPI):
         from app.config.database import async_session_factory
         from app.services.user_service import ensure_temp_user
         from app.services.extension_sync import sync_extensions
-        from app.services.team_service import ensure_default_teams
         from app.api.deps import TEMP_USER_ID
 
         async with async_session_factory() as session:
             await ensure_temp_user(session)
             await session.commit()
         logger.info("[lifespan] Seed user ensured")
-
-        # 种子 Team 数据（先创建 Team，再同步扩展节点以便关联）
-        async with async_session_factory() as session:
-            team_count = await ensure_default_teams(session)
-        logger.info("[lifespan] Default teams ensured: %d", team_count)
 
         # 同步扩展节点（Team 已存在，可正确关联）
         async with async_session_factory() as session:
