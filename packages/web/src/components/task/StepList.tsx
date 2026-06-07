@@ -21,6 +21,145 @@ function formatDuration(start?: string | null, end?: string | null): string | nu
   return `${(ms / 60000).toFixed(1)}min`;
 }
 
+/**
+ * 通用数据结构化渲染（用于 Input Data 等）
+ *
+ * 如果数据是纯字符串直接展示文本，否则 JSON 格式化
+ */
+function StructuredDataRenderer({ data }: { data: unknown }) {
+  if (typeof data === "string") {
+    return <pre className="max-h-40 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-foreground/50 whitespace-pre-wrap break-all">{data}</pre>;
+  }
+  // 尝试智能渲染：如果对象字段少且值都是简单类型，用 key-value 列表
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const entries = Object.entries(data as Record<string, unknown>);
+    const allSimple = entries.every(([, v]) => typeof v === "string" || typeof v === "number" || typeof v === "boolean" || v === null);
+    if (allSimple && entries.length <= 10 && entries.length > 0) {
+      return (
+        <div className="max-h-40 overflow-auto rounded-lg bg-surface p-3 space-y-1">
+          {entries.map(([k, v]) => (
+            <div key={k} className="flex items-start gap-2 text-[11px]">
+              <span className="shrink-0 font-mono text-foreground/40 min-w-[80px]">{k}:</span>
+              <span className="font-mono text-foreground/60 break-all">{v === null ? "null" : String(v)}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+  }
+  return <pre className="max-h-40 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-foreground/50 whitespace-pre-wrap break-all">{JSON.stringify(data, null, 2)}</pre>;
+}
+
+/**
+ * 结构化渲染步骤输出数据
+ *
+ * output_data 通常包含：status, text, thinking, result, cost_usd 等字段
+ * text 作为主要内容展示，其余字段结构化展示
+ */
+function StepOutputRenderer({ data }: { data: unknown }) {
+  if (!data || typeof data !== "object") {
+    return <pre className="mt-1.5 max-h-48 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-emerald-400/70 whitespace-pre-wrap break-all">{String(data)}</pre>;
+  }
+
+  const d = data as Record<string, unknown>;
+  const text = typeof d.text === "string" ? d.text : "";
+  const thinking = typeof d.thinking === "string" ? d.thinking : "";
+  const status = typeof d.status === "string" ? d.status : "";
+  const result = d.result;
+  const costUsd = d.cost_usd;
+
+  // 其余字段（排除已专门处理的）
+  const handledKeys = new Set(["status", "summary", "text", "thinking", "result", "cost_usd"]);
+  const otherKeys = Object.keys(d).filter(k => !handledKeys.has(k));
+  const hasOthers = otherKeys.length > 0;
+
+  return (
+    <div className="mt-1.5 space-y-2">
+      {/* 详细输出文本 — 主内容 */}
+      {text && (
+        <pre className="max-h-40 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-foreground/50 whitespace-pre-wrap break-all">{text}</pre>
+      )}
+
+      {/* 思考过程 — 折叠展示 */}
+      {thinking && (
+        <details>
+          <summary className="cursor-pointer text-[11px] font-medium text-violet/60 hover:text-violet/80 transition-colors">思考过程</summary>
+          <pre className="mt-1 max-h-32 overflow-auto rounded-lg bg-violet/5 border border-violet/10 p-3 font-mono text-[11px] text-violet/50 whitespace-pre-wrap break-all">{thinking}</pre>
+        </details>
+      )}
+
+      {/* Result 字段 */}
+      {result !== undefined && result !== null && (
+        <details>
+          <summary className="cursor-pointer text-[11px] font-medium text-brand/60 hover:text-brand/80 transition-colors">Result</summary>
+          <pre className="mt-1 max-h-32 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-foreground/50 whitespace-pre-wrap break-all">{typeof result === "string" ? result : JSON.stringify(result, null, 2)}</pre>
+        </details>
+      )}
+
+      {/* 元信息行 */}
+      {(status || costUsd !== undefined) && (
+        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+          {status && <span>状态: <span className={status === "completed" ? "text-emerald-400" : status === "failed" ? "text-red-400" : "text-foreground/50"}>{status}</span></span>}
+          {costUsd !== undefined && <span>费用: ${Number(costUsd).toFixed(4)}</span>}
+        </div>
+      )}
+
+      {/* 其余字段 — 折叠展示原始 JSON */}
+      {hasOthers && (
+        <details>
+          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground/60 hover:text-muted-foreground transition-colors">更多字段</summary>
+          <pre className="mt-1 max-h-32 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-foreground/40 whitespace-pre-wrap break-all">{JSON.stringify(Object.fromEntries(otherKeys.map(k => [k, d[k]])), null, 2)}</pre>
+        </details>
+      )}
+
+      {/* 无任何内容时，fallback 展示完整 JSON */}
+      {!text && !thinking && !result && !hasOthers && (
+        <pre className="max-h-48 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-emerald-400/70 whitespace-pre-wrap break-all">{JSON.stringify(data, null, 2)}</pre>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 任务级输出渲染器
+ *
+ * 任务的 output_data 是按 node_id 聚合的字典，如 { "node_1": {...}, "node_2": {...} }
+ * 需要按节点分组展示，而非套用步骤输出的渲染逻辑
+ */
+function TaskOutputRenderer({ data, nodeNameMap }: { data: unknown; nodeNameMap: Record<string, string> }) {
+  if (!data || typeof data !== "object") {
+    return <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-foreground/50 whitespace-pre-wrap break-all">{String(data)}</pre>;
+  }
+
+  const d = data as Record<string, unknown>;
+  const entries = Object.entries(d);
+
+  // 如果看起来不是 node_id 键值结构（字段少且包含 summary/text 等），直接用结构化渲染
+  const looksLikeStepOutput = entries.length <= 5 && entries.some(([k]) => ["summary", "text", "thinking", "result", "status"].includes(k));
+  if (looksLikeStepOutput) {
+    return <StructuredDataRenderer data={data} />;
+  }
+
+  // 按 node 分组展示
+  return (
+    <div className="space-y-2">
+      {entries.map(([nodeId, nodeOutput]) => {
+        const displayName = nodeNameMap[nodeId] || nodeId;
+        return (
+          <details key={nodeId} open={entries.length <= 3}>
+            <summary className="cursor-pointer text-[11px] font-medium text-brand/60 hover:text-brand/80 transition-colors py-1">
+              {displayName}
+            </summary>
+            <div className="mt-1">
+              <StructuredDataRenderer data={nodeOutput} />
+            </div>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
 interface StepListProps {
   steps: Step[];
   nodeNameMap: Record<string, string>;
@@ -165,14 +304,16 @@ export default function StepList({
                     {step.input_data && (
                       <details className={cn("group mt-3", !step.error && "mt-3")}>
                         <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">Input Data</summary>
-                        <pre className="mt-1.5 max-h-40 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-foreground/50 whitespace-pre-wrap break-all">{JSON.stringify(step.input_data, null, 2)}</pre>
+                        <div className="mt-1.5">
+                          <StructuredDataRenderer data={step.input_data} />
+                        </div>
                       </details>
                     )}
 
                     {step.output_data && (
                       <details className="group" open>
                         <summary className="cursor-pointer text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors">Output</summary>
-                        <pre className="mt-1.5 max-h-48 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-emerald-400/70 whitespace-pre-wrap break-all">{JSON.stringify(step.output_data, null, 2)}</pre>
+                        <StepOutputRenderer data={step.output_data} />
                       </details>
                     )}
 
@@ -233,13 +374,15 @@ export default function StepList({
             {taskIO.input && (
               <details className="group/input">
                 <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors py-1">Task Input</summary>
-                <pre className="mt-1 max-h-32 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-foreground/50 whitespace-pre-wrap break-all">{JSON.stringify(taskIO.input, null, 2)}</pre>
+                <div className="mt-1">
+                  <StructuredDataRenderer data={taskIO.input} />
+                </div>
               </details>
             )}
             {taskIO.output && (
               <details className="group/output" open>
                 <summary className="cursor-pointer text-[11px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors py-1">Task Output</summary>
-                <pre className="mt-1 max-h-40 overflow-auto rounded-lg bg-surface p-3 font-mono text-[11px] text-emerald-400/70 whitespace-pre-wrap break-all">{JSON.stringify(taskIO.output, null, 2)}</pre>
+                <TaskOutputRenderer data={taskIO.output} nodeNameMap={nodeNameMap} />
               </details>
             )}
           </div>

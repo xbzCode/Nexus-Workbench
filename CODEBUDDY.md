@@ -105,6 +105,7 @@ app/
 - **UI 组件**：shadcn/ui 基础 + 按功能域拆目录（chat/approval/task/workflow/layout/debug/shared）
 - **拖拽排序**：@dnd-kit/core + @dnd-kit/sortable，用于审批排序等交互
 - **Markdown 渲染**：react-markdown + remark-gfm，用于成果物预览
+- **结构化数据渲染**：StepOutputRenderer / StructuredDataRenderer / ContextDataRenderer 分别用于步骤输出、输入数据、审批上下文的结构化展示，而非 JSON dump
 - **Next.js rewrites**：开发环境将 `/api/*` 代理到 `http://localhost:8000/api/*`
 
 ### 数据库

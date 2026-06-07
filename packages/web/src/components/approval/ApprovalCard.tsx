@@ -71,6 +71,100 @@ interface ApprovalCardProps {
   className?: string;
 }
 
+/**
+ * 审批上下文数据结构化渲染
+ *
+ * context_data 常见字段：
+ * - agent_progress: Agent 的进度文本（如汇总信息）
+ * - question: Agent 提出的问题
+ * - tool_name / tool_input: 工具调用信息
+ * - risk_reasoning: 风险评估理由
+ * - node_id: 节点ID
+ * - analysis: LLM 分析结果
+ *
+ * 策略：已知字段结构化展示，未知字段 fallback 为 JSON
+ */
+function ContextDataRenderer({ data }: { data: Record<string, unknown> }) {
+  if (!data || typeof data !== "object") return null;
+
+  const agentProgress = typeof data.agent_progress === "string" ? data.agent_progress : "";
+  const question = typeof data.question === "string" ? data.question : "";
+  const toolName = typeof data.tool_name === "string" ? data.tool_name : "";
+  const toolInput = data.tool_input;
+  const riskReasoning = typeof data.risk_reasoning === "string" ? data.risk_reasoning : "";
+  const analysis = data.analysis;
+  const nodeId = typeof data.node_id === "string" ? data.node_id : "";
+
+  // 已处理的 key
+  const handledKeys = new Set(["agent_progress", "question", "tool_name", "tool_input", "risk_reasoning", "node_id", "analysis"]);
+  const otherKeys = Object.keys(data).filter(k => !handledKeys.has(k));
+  const hasOthers = otherKeys.length > 0;
+
+  return (
+    <div className="space-y-2">
+      {/* Agent 进度文本 — 最重要，醒目展示 */}
+      {agentProgress && (
+        <div>
+          <span className="text-[11px] font-medium text-emerald-400/80 uppercase tracking-wider">Agent 输出</span>
+          <div className="mt-1 rounded-lg bg-emerald-500/5 border border-emerald-400/10 p-2.5 text-xs text-foreground/70 whitespace-pre-wrap leading-relaxed max-h-48 overflow-auto">
+            {agentProgress}
+          </div>
+        </div>
+      )}
+
+      {/* 提问内容（如和 description 不同） */}
+      {question && question !== String(data.question) && (
+        <div>
+          <span className="text-[11px] font-medium text-purple-400/80 uppercase tracking-wider">问题详情</span>
+          <p className="mt-1 text-xs text-foreground/70 whitespace-pre-wrap">{question}</p>
+        </div>
+      )}
+
+      {/* 工具调用信息 */}
+      {toolName && (
+        <div>
+          <span className="text-[11px] font-medium text-brand/70 uppercase tracking-wider">工具调用</span>
+          <div className="mt-1 rounded-lg bg-surface p-2.5 space-y-1 border border-border/40">
+            <div className="text-xs"><span className="text-muted-foreground">工具:</span> <span className="font-mono text-foreground/60">{toolName}</span></div>
+            {toolInput && (
+              <pre className="text-[11px] font-mono text-foreground/40 whitespace-pre-wrap break-all max-h-24 overflow-auto">{typeof toolInput === "string" ? toolInput : JSON.stringify(toolInput, null, 2)}</pre>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 风险评估理由 */}
+      {riskReasoning && (
+        <div>
+          <span className="text-[11px] font-medium text-red-400/70 uppercase tracking-wider">风险评估</span>
+          <p className="mt-1 text-xs text-foreground/60">{riskReasoning}</p>
+        </div>
+      )}
+
+      {/* LLM 分析结果 */}
+      {analysis && typeof analysis === "object" && (
+        <details>
+          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground/60 hover:text-muted-foreground transition-colors">LLM 分析结果</summary>
+          <pre className="mt-1 max-h-24 overflow-auto rounded-lg bg-surface p-2 font-mono text-[11px] text-foreground/40 whitespace-pre-wrap break-all border border-border/40">{JSON.stringify(analysis, null, 2)}</pre>
+        </details>
+      )}
+
+      {/* 节点 ID */}
+      {nodeId && (
+        <div className="text-[10px] text-muted-foreground/40">节点: <span className="font-mono">{nodeId}</span></div>
+      )}
+
+      {/* 其他未识别字段 */}
+      {hasOthers && (
+        <details>
+          <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground/50 hover:text-muted-foreground transition-colors">更多上下文</summary>
+          <pre className="mt-1 max-h-24 overflow-auto rounded-lg bg-surface p-2 font-mono text-[11px] text-foreground/40 whitespace-pre-wrap break-all border border-border/40">{JSON.stringify(Object.fromEntries(otherKeys.map(k => [k, data[k]])), null, 2)}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
 /** 可排序的选项行 */
 function SortableRankItem({ id, optIdx, rankIdx, label }: { id: string; optIdx: number; rankIdx: number; label: string }) {
   const {
@@ -393,12 +487,7 @@ export default function ApprovalCard({
           </summary>
           <div className="px-4 pb-3 space-y-2">
             {approval.context_data && (
-              <div>
-                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Context Data</span>
-                <pre className="mt-1 max-h-32 overflow-auto rounded-lg bg-surface p-2.5 font-mono text-[11px] text-foreground/50 whitespace-pre-wrap break-all border border-border/40">
-                  {JSON.stringify(approval.context_data, null, 2)}
-                </pre>
-              </div>
+              <ContextDataRenderer data={approval.context_data} />
             )}
             {approval.validation_result && (
               <div>

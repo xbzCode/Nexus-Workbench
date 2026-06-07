@@ -28,6 +28,28 @@ const DEFAULT_LEFT_RATIO = 60;
 const MIN_LEFT_RATIO = 40;
 const MAX_LEFT_RATIO = 75;
 
+/** 从审批结果中提取用户回复的摘要文本 */
+function extractApprovalResult(result: Record<string, unknown>, type?: string): string {
+  if (result.answer) return String(result.answer);
+  if (result.yes !== undefined) return result.yes ? "是" : "否";
+  if (result.choices) {
+    const choices = result.choices as string[];
+    return `选择了: ${choices.join(", ")}`;
+  }
+  if (result.choice) return `选择了: ${String(result.choice)}`;
+  if (result.labels) {
+    const labels = result.labels as string[];
+    return `排序: ${labels.join(" > ")}`;
+  }
+  if (result.ranked) {
+    const ranked = result.ranked as string[];
+    return `排序: ${ranked.join(" > ")}`;
+  }
+  // fallback
+  const str = JSON.stringify(result);
+  return str.length > 100 ? str.slice(0, 100) + "..." : str;
+}
+
 export default function TaskDetailPage() {
   const params = useParams();
   const id = params.id as string;
@@ -180,24 +202,65 @@ export default function TaskDetailPage() {
   const failedNodes = steps.filter(s => s.status === "failed").length;
   const pendingApprovals = approvals.filter(a => a.status === "pending");
 
-  // Log events
+  // Log events — 提取有意义的内容用于日志展示
   const logEvents = useMemo(() => {
     const evts: { event: string; data: Record<string, unknown>; ts?: string }[] = [];
+
+    // 步骤事件：提取 text 和 error 信息
     for (const s of steps) {
+      const text = (s.output_data as Record<string, unknown>)?.text;
+      const error = s.error;
       evts.push({
         event: s.status === "completed" ? "dag:node_completed" : s.status === "failed" ? "dag:node_failed" : "dag:node_started",
-        data: { node_id: s.node_id, output: s.output_data, error: s.error },
+        data: {
+          node_id: s.node_id,
+          text: text ? String(text).slice(0, 200) : undefined,
+          error: error ? (typeof error === "string" ? error : JSON.stringify(error).slice(0, 200)) : undefined,
+        },
         ts: (s.completed_at ?? s.started_at) ?? undefined,
       });
     }
+
+    // 审批事件：拆分为「提问」和「回复」两条日志
     for (const a of approvals) {
+      // 提问事件
       evts.push({
-        event: `approval:${a.status === "pending" ? "created" : "resolved"}`,
-        data: { approval_id: a.id, type: a.type, title: a.title, status: a.status },
+        event: "approval:question",
+        data: {
+          approval_id: a.id,
+          type: a.type,
+          title: a.title,
+          description: a.description ? String(a.description).slice(0, 200) : undefined,
+          node_id: a.context_data?.node_id ? String(a.context_data.node_id) : undefined,
+        },
         ts: a.created_at,
       });
+      // 已解决时，追加回复事件
+      if (a.status !== "pending" && a.resolved_at) {
+        evts.push({
+          event: `approval:${a.status}`,
+          data: {
+            approval_id: a.id,
+            title: a.title,
+            result: a.result ? extractApprovalResult(a.result, a.type) : undefined,
+          },
+          ts: a.resolved_at,
+        });
+      }
     }
-    for (const e of sseEvents) evts.push({ event: e.event, data: e.data, ts: e.timestamp });
+
+    // SSE 事件：保留 content 字段用于日志展示
+    for (const e of sseEvents) {
+      evts.push({ event: e.event, data: e.data, ts: e.timestamp });
+    }
+
+    // 按时间升序排序（最旧在上，最新在下）
+    evts.sort((a, b) => {
+      const ta = a.ts ? new Date(a.ts).getTime() : 0;
+      const tb = b.ts ? new Date(b.ts).getTime() : 0;
+      return ta - tb;
+    });
+
     return evts;
   }, [steps, approvals, sseEvents]);
 
@@ -263,6 +326,7 @@ export default function TaskDetailPage() {
                 execPaths={execPaths}
                 files={files}
                 logEvents={logEvents}
+                nodeNameMap={nodeNameMap}
                 onResolveApproval={handleResolveApproval}
                 onApprovalDetail={setDialogApproval}
                 onRollback={handleRollback}

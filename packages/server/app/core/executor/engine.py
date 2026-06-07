@@ -417,6 +417,12 @@ async def _execute_node_via_adapter(
                         title=risk.get("title", f"Agent 请求执行: {event.tool_name}"),
                         description=risk.get("description", ""),
                         options=None,
+                        context_data={
+                            "tool_name": event.tool_name,
+                            "tool_input": event.tool_input,
+                            "risk_reasoning": risk.get("reasoning", ""),
+                            "node_id": node_id,
+                        },
                         bg_session_factory=bg_session_factory,
                         event_bus=event_bus,
                     )
@@ -465,6 +471,12 @@ async def _execute_node_via_adapter(
                 title=f"Agent 提问: {node_id}",
                 description=question_text,
                 options=approval_options,
+                context_data={
+                    "node_id": node_id,
+                    "question": question_text,
+                    "agent_progress": "\n".join(all_progress_texts[-5:]) if all_progress_texts else "",
+                    "analysis": analysis,
+                },
                 bg_session_factory=bg_session_factory,
                 event_bus=event_bus,
             )
@@ -591,6 +603,7 @@ async def _create_and_wait_approval(
     title: str,
     description: str,
     options: list | None = None,
+    context_data: dict | None = None,
     bg_session_factory=None,
     event_bus: EventBus | None = None,
 ) -> uuid.UUID:
@@ -616,6 +629,7 @@ async def _create_and_wait_approval(
             title=title,
             description=description,
             options=options,
+            context_data=context_data,
             status="pending",
         )
         session.add(approval)

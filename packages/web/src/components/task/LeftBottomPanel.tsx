@@ -36,6 +36,7 @@ interface LeftBottomPanelProps {
   execPaths: ExecutionPathItem[];
   files: FileEntry[];
   logEvents: { event: string; data: Record<string, unknown>; ts?: string }[];
+  nodeNameMap?: Record<string, string>;
 
   // Callbacks
   onResolveApproval: (id: string, status: "approved" | "rejected", result?: Record<string, unknown>) => void;
@@ -51,7 +52,7 @@ const PANEL_HEIGHT_EXPANDED = 280;
 const PANEL_HEIGHT_COLLAPSED = 36;
 
 export default function LeftBottomPanel({
-  taskId, approvals, pendingApprovals, snapshots, execPaths, files, logEvents,
+  taskId, approvals, pendingApprovals, snapshots, execPaths, files, logEvents, nodeNameMap,
   onResolveApproval, onApprovalDetail, onRollback, onPrecipitate, onRatePath, onPreviewFile, actionLoading,
 }: LeftBottomPanelProps) {
   const [activeTab, setActiveTab] = useState<BottomTab>("log");
@@ -147,26 +148,77 @@ export default function LeftBottomPanel({
                 <div className="text-muted-foreground py-6 text-center text-[11px]">暂无日志</div>
               )}
               {logEvents.map((evt, i) => {
-                const isNodeEvent = evt.event.startsWith("dag:node_");
-                const isApprovalEvent = evt.event.startsWith("approval:");
-                const summary = isNodeEvent
-                  ? `Node: ${String(evt.data.node_id ?? "").slice(0, 24)}`
-                  : isApprovalEvent ? `Approval: ${String(evt.data.title ?? evt.data.approval_id ?? "").slice(0, 24)}` : "";
+                const isNodeEvent = evt.event.startsWith("dag:node_") || evt.event.startsWith("node:");
+                const isApprovalQuestion = evt.event === "approval:question";
+                const isApprovalReply = evt.event === "approval:approved" || evt.event === "approval:rejected";
+                const isProgressEvent = evt.event === "node:progress" || evt.event === "node:thinking";
+                const isRiskyEvent = evt.event === "node:risky_tool";
+
+                // 提取有意义的日志内容
+                const d = evt.data;
+                const content = d.content ? String(d.content) : "";
+                const text = d.text ? String(d.text) : "";
+                const error = d.error ? String(d.error) : "";
+                const description = d.description ? String(d.description) : "";
+                const result = d.result ? String(d.result) : "";
+                const toolName = d.tool_name ? String(d.tool_name) : "";
+
+                // 构建展示内容
+                let displayText = "";
+                if (isApprovalQuestion) {
+                  displayText = description || String(d.title ?? "");
+                } else if (isApprovalReply) {
+                  displayText = result || (evt.event === "approval:approved" ? "已批准" : "已拒绝");
+                } else {
+                  displayText = content || text || error || description || "";
+                }
+                if (isRiskyEvent && !displayText && toolName) {
+                  displayText = `高风险工具: ${toolName}`;
+                }
+
+                // Node ID 标签
+                const nodeId = d.node_id ? String(d.node_id) : "";
+                const nodeLabel = nodeId && isNodeEvent
+                  ? `Node: ${nodeNameMap?.[nodeId] ?? nodeId.slice(0, 16)}`
+                  : "";
+
+                // 事件标签文字（中文，替代原始 event name）
+                let eventLabel = evt.event;
+                if (isApprovalQuestion) eventLabel = "Agent 提问";
+                else if (evt.event === "approval:approved") eventLabel = "用户回复 ✓";
+                else if (evt.event === "approval:rejected") eventLabel = "用户回复 ✗";
+                else if (evt.event.includes("completed")) eventLabel = "节点完成";
+                else if (evt.event.includes("failed")) eventLabel = "节点失败";
+                else if (evt.event.includes("started")) eventLabel = "节点启动";
+
                 return (
                   <div key={i} className="flex items-start gap-2 py-0.5 text-muted-foreground hover:bg-surface-hover/40 rounded px-1.5 -mx-1.5 transition-colors">
                     <span className="shrink-0 text-muted-foreground/25 w-14 text-right tabular-nums leading-4">
                       {evt.ts ? new Date(evt.ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--:--:--"}
                     </span>
                     <span className={cn(
-                      "shrink-0 w-[120px] truncate font-medium leading-4",
-                      evt.event.includes("completed") || evt.event.includes("resolved") ? "text-emerald-400/70" :
-                      evt.event.includes("failed") || evt.event.includes("error") ? "text-red-400/70" :
-                      evt.event.includes("started") ? "text-brand/70" :
-                      evt.event.includes("approval") ? "text-amber/70" : ""
-                    )} title={evt.event}>{evt.event}</span>
-                    {summary && (<span className="shrink-0 truncate text-foreground/50 leading-4" style={{ maxWidth: 140 }} title={summary}>{summary}</span>)}
-                    {!summary && Object.keys(evt.data).length > 0 && (
-                      <span className="text-foreground/30 break-all leading-4 line-clamp-1">{JSON.stringify(evt.data).slice(0, 80)}</span>
+                      "shrink-0 truncate font-medium leading-4",
+                      isProgressEvent ? "w-[90px] text-sky-400" :
+                      isApprovalQuestion ? "w-[90px] text-purple-400" :
+                      isApprovalReply ? "w-[90px] text-emerald-400" :
+                      isRiskyEvent ? "w-[90px] text-red-400" :
+                      evt.event.includes("failed") || evt.event.includes("error") ? "w-[90px] text-red-400" :
+                      "w-[90px] text-foreground/60"
+                    )} title={evt.event}>{eventLabel}</span>
+                    {nodeLabel && (
+                      <span className="shrink-0 truncate text-foreground/60 leading-4" style={{ maxWidth: 120 }} title={nodeLabel}>
+                        {nodeLabel}
+                      </span>
+                    )}
+                    {displayText && (
+                      <span className={cn(
+                        "break-all leading-4 line-clamp-1 flex-1 min-w-0",
+                        isApprovalQuestion ? "text-purple-400" :
+                        isApprovalReply ? "text-emerald-400" :
+                        isProgressEvent ? "text-sky-400" :
+                        error ? "text-red-400" :
+                        "text-foreground/70"
+                      )} title={displayText}>{displayText}</span>
                     )}
                   </div>
                 );
