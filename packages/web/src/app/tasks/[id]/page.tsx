@@ -11,6 +11,7 @@ import TaskHeader from "@/components/task/TaskHeader";
 import StepList from "@/components/task/StepList";
 import RightPanel from "@/components/task/RightPanel";
 import LeftBottomPanel from "@/components/task/LeftBottomPanel";
+import FilePreviewDialog from "@/components/task/FilePreviewDialog";
 import { ApprovalDialog } from "@/components/approval/ApprovalDialog";
 import type {
   APIResponse, Task, Step, Approval, DAGDefinition,
@@ -44,6 +45,7 @@ export default function TaskDetailPage() {
   const [leftRatio, setLeftRatio] = useState(DEFAULT_LEFT_RATIO);
   const [isResizing, setIsResizing] = useState(false);
   const [dialogApproval, setDialogApproval] = useState<Approval | null>(null);
+  const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -254,6 +256,7 @@ export default function TaskDetailPage() {
 
               {/* 左侧底部：日志/审批/快照等 Tab 面板 */}
               <LeftBottomPanel
+                taskId={id}
                 approvals={approvals}
                 pendingApprovals={pendingApprovals}
                 snapshots={snapshots}
@@ -265,6 +268,7 @@ export default function TaskDetailPage() {
                 onRollback={handleRollback}
                 onPrecipitate={handlePrecipitate}
                 onRatePath={(pid: string, r: number) => { api.post(`/execution-paths/${pid}/rate`, { rating: r }); fetchData(); }}
+                onPreviewFile={setPreviewFilePath}
                 actionLoading={actionLoading}
               />
             </div>
@@ -301,6 +305,14 @@ export default function TaskDetailPage() {
               onClose={() => setDialogApproval(null)}
             />
           )}
+
+          {/* File Preview Dialog */}
+          <FilePreviewDialog
+            open={!!previewFilePath}
+            filePath={previewFilePath ?? ""}
+            taskId={id}
+            onClose={() => setPreviewFilePath(null)}
+          />
         </>
       )}
     </div>

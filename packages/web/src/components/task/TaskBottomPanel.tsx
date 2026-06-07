@@ -10,7 +10,7 @@ import type { Approval, SnapshotItem, ExecutionPathItem, FileEntry } from "@/lib
 import {
   Bell, ScrollText, Camera, Route, FileText, Folder,
   GripVertical, RotateCcw, Star, Download, Loader2,
-  FileCode,
+  FileCode, Eye,
 } from "lucide-react";
 
 type BottomTab = "log" | "approval" | "snapshots" | "paths" | "files";
@@ -35,6 +35,7 @@ interface TaskBottomPanelProps {
   onResizeStart: (e: React.MouseEvent) => void;
 
   // Data
+  taskId: string;
   approvals: Approval[];
   pendingApprovals: Approval[];
   snapshots: SnapshotItem[];
@@ -48,13 +49,14 @@ interface TaskBottomPanelProps {
   onRollback: (id: string) => void;
   onPrecipitate: (id: string) => void;
   onRatePath: (id: string, rating: number) => void;
+  onPreviewFile: (filePath: string) => void;
   actionLoading: string | null;
 }
 
 export default function TaskBottomPanel({
   activeTab, setActiveTab, height, isResizing, onResizeStart,
-  approvals, pendingApprovals, snapshots, execPaths, files, logEvents,
-  onResolveApproval, onApprovalDetail, onRollback, onPrecipitate, onRatePath, actionLoading,
+  taskId, approvals, pendingApprovals, snapshots, execPaths, files, logEvents,
+  onResolveApproval, onApprovalDetail, onRollback, onPrecipitate, onRatePath, onPreviewFile, actionLoading,
 }: TaskBottomPanelProps) {
   const BOTTOM_TABS: { key: BottomTab; label: string; icon: React.ElementType; badge?: number }[] = [
     { key: "log", label: "Logs", icon: ScrollText },
@@ -248,12 +250,32 @@ export default function TaskBottomPanel({
                 </div>
                 {files.map((f, i) => {
                   const FI = getFileIcon(f.path);
+                  const isPreviewable = /\.(html?|png|jpe?g|gif|webp|svg|bmp|md|markdown|mdx|txt|json|yml|yaml|toml|xml|log|csv|tsv|py|js|ts|tsx|jsx|css|scss|less|go|rs|java|c|cpp|h|rb|php|sql|sh|bash|env|ini|cfg|conf)$/i.test(f.path);
                   return (
-                    <div key={i} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-hover text-xs transition-colors">
+                    <div key={i} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-hover text-xs transition-colors group">
                       <FI className="h-3.5 w-3.5 shrink-0 text-brand" />
-                      <span className="flex-1 font-mono text-foreground/70 truncate">{f.path}</span>
+                      <span className="flex-1 font-mono text-foreground/70 truncate min-w-0">{f.path}</span>
                       <span className="text-muted-foreground w-16 text-right shrink-0 tabular-nums">{formatFileSize(f.size)}</span>
                       <span className="text-muted-foreground w-20 text-right shrink-0">{new Date(f.modified_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+                      <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {isPreviewable && (
+                          <button
+                            onClick={() => onPreviewFile(f.path)}
+                            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 hover:text-brand hover:bg-brand/10 transition-colors"
+                            title="Preview"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        <a
+                          href={`/api/tasks/${taskId}/files/${f.path}?download=true`}
+                          download
+                          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 hover:text-brand hover:bg-brand/10 transition-colors"
+                          title="Download"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </a>
+                      </div>
                     </div>
                   );
                 })}

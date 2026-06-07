@@ -321,3 +321,41 @@ async def get_task_files(task_id: str):
         return APIResponse(data=files)
     except Exception as e:
         return APIResponse(data=[], message=f"读取文件列表失败: {str(e)}")
+
+
+@router.get("/{task_id}/files/{file_path:path}")
+async def get_task_file_content(task_id: str, file_path: str, download: bool = False):
+    """获取任务 workspace 中指定文件的内容（预览或下载）
+
+    Args:
+        task_id: 任务 ID
+        file_path: 相对于 workspace 的文件路径
+        download: 是否以附件方式下载（默认 inline 预览）
+    """
+    import mimetypes
+    from fastapi.responses import FileResponse
+
+    file_full_path = task_service.get_task_file_path(uuid.UUID(task_id), file_path)
+
+    if not file_full_path or not file_full_path.is_file():
+        raise HTTPException(404, f"File not found: {file_path}")
+
+    # 安全校验：确保路径没有逃逸出 workspace
+    workspace_dir = task_service.get_task_workspace_dir(uuid.UUID(task_id))
+    try:
+        file_full_path.resolve().relative_to(workspace_dir.resolve())
+    except ValueError:
+        raise HTTPException(403, "Access denied: path outside workspace")
+
+    # 推断 MIME 类型
+    mime_type, _ = mimetypes.guess_type(file_full_path.name)
+    if not mime_type:
+        mime_type = "application/octet-stream"
+
+    disposition = "attachment" if download else "inline"
+    return FileResponse(
+        path=str(file_full_path),
+        media_type=mime_type,
+        filename=file_full_path.name if download else None,
+        content_disposition_type=disposition,
+    )

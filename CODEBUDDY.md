@@ -103,6 +103,8 @@ app/
 - **SSE Hook**（`src/hooks/useSSE.ts`）：监听后端事件流，驱动实时状态更新
 - **TypeScript 类型**（`src/lib/types.ts`）：由 `openapi-typescript` 从后端 OpenAPI 自动生成
 - **UI 组件**：shadcn/ui 基础 + 按功能域拆目录（chat/approval/task/workflow/layout/debug/shared）
+- **拖拽排序**：@dnd-kit/core + @dnd-kit/sortable，用于审批排序等交互
+- **Markdown 渲染**：react-markdown + remark-gfm，用于成果物预览
 - **Next.js rewrites**：开发环境将 `/api/*` 代理到 `http://localhost:8000/api/*`
 
 ### 数据库
@@ -115,6 +117,14 @@ app/
 ### API 路由
 
 所有路由挂载在 `/api` 前缀下，共 9 组：`/match`、`/describe`、`/workflows`、`/nodes`、`/tasks`、`/approvals`、`/snapshots`、`/execution-paths`、`/events`
+
+### 文件成果物 API
+
+- `GET /api/tasks/{task_id}/files` — 获取 workspace 产物文件列表（元数据）
+- `GET /api/tasks/{task_id}/files/{file_path:path}` — 获取文件内容（预览/下载）
+  - 默认 inline 预览（根据 MIME 类型自动判断）
+  - `?download=true` 参数触发浏览器附件下载
+  - 路径安全校验：防止路径逃逸出 workspace 目录
 
 ### 关键约定
 

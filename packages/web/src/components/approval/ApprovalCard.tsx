@@ -24,6 +24,22 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const URGENCY_STYLE: Record<string, { bg: string; icon: React.ElementType; label: string }> = {
   auto_decidable: { bg: "bg-emerald-500/10 text-emerald-400", icon: Zap, label: "可自动决定" },
@@ -53,6 +69,47 @@ interface ApprovalCardProps {
   onResolve?: (id: string, status: "approved" | "rejected", result?: Record<string, unknown>) => void;
   compact?: boolean;
   className?: string;
+}
+
+/** 可排序的选项行 */
+function SortableRankItem({ id, optIdx, rankIdx, label }: { id: string; optIdx: number; rankIdx: number; label: string }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex items-center gap-3 px-4 py-3 text-sm cursor-grab active:cursor-grabbing transition-colors border-b last:border-b-0 border-border/40",
+        isDragging ? "bg-purple-500/10 shadow-lg ring-1 ring-purple-500/20" : "hover:bg-surface-hover"
+      )}
+      {...attributes}
+      {...listeners}
+    >
+      <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/30" />
+      <span className={cn(
+        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+        rankIdx === 0 ? "bg-amber text-white"
+          : rankIdx === 1 ? "bg-muted-foreground/20 text-muted-foreground"
+          : rankIdx === 2 ? "bg-orange-500/15 text-orange-400"
+          : "bg-surface text-muted-foreground/50"
+      )}>{rankIdx + 1}</span>
+      <span className="font-medium flex-1">{label}</span>
+    </div>
+  );
 }
 
 export default function ApprovalCard({
@@ -96,7 +153,26 @@ export default function ApprovalCard({
   const [rankedOrder, setRankedOrder] = useState<number[]>(() =>
     options.length > 0 ? options.map((_, i) => i) : []
   );
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  // dnd-kit sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setRankedOrder(prev => {
+      const oldIndex = prev.indexOf(Number(active.id));
+      const newIndex = prev.indexOf(Number(over.id));
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(oldIndex, 1);
+      next.splice(newIndex, 0, moved!);
+      return next;
+    });
+  }, []);
 
   // 检查描述是否溢出
   useEffect(() => {
@@ -143,22 +219,6 @@ export default function ApprovalCard({
     // confirm 类型无需额外 result，status 即表达了 approve/reject
     onResolve(approval.id, status, result);
   };
-
-  // 排序拖拽处理
-  const handleDragStart = (idx: number) => setDragIndex(idx);
-  const handleDragOver = (e: React.DragEvent, idx: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    if (dragIndex === null || dragIndex === idx) return;
-    setRankedOrder(prev => {
-      const next = [...prev];
-      const [moved] = next.splice(dragIndex, 1);
-      next.splice(idx, 0, moved!);
-      return next;
-    });
-    setDragIndex(idx);
-  };
-  const handleDragEnd = () => setDragIndex(null);
 
   const toggleOption = (i: number) => {
     if (normalizedType === "choice_multi") {
@@ -419,37 +479,22 @@ export default function ApprovalCard({
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <ArrowUpDown className="h-3.5 w-3.5" />上下拖拽调整优先级顺序（最上方优先级最高）
               </p>
-              <div className="rounded-lg border border-border bg-card overflow-hidden">
-                {rankedOrder.map((optIdx, rankIdx) => {
-                  const opt = options[optIdx];
-                  if (!opt) return null;
-                  return (
-                    <div
-                      key={opt.value}
-                      draggable
-                      onDragStart={() => handleDragStart(optIdx)}
-                      onDragOver={(e) => handleDragOver(e, optIdx)}
-                      onDragEnd={handleDragEnd}
-                      className={cn(
-                        "flex items-center gap-3 px-4 py-3 text-sm cursor-grab active:cursor-grabbing transition-colors border-b last:border-b-0 border-border/40",
-                        dragIndex === optIdx
-                          ? "bg-purple-500/10 scale-[1.01] shadow-sm"
-                          : "hover:bg-surface-hover"
-                      )}
-                    >
-                      <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/30" />
-                      <span className={cn(
-                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
-                        rankIdx === 0 ? "bg-amber text-white"
-                          : rankIdx === 1 ? "bg-muted-foreground/20 text-muted-foreground"
-                          : rankIdx === 2 ? "bg-orange-500/15 text-orange-400"
-                          : "bg-surface text-muted-foreground/50"
-                      )}>{rankIdx + 1}</span>
-                      <span className="font-medium flex-1">{opt.label}</span>
-                    </div>
-                  );
-                })}
-              </div>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={rankedOrder.map(i => String(i))}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="rounded-lg border border-border bg-card overflow-hidden">
+                    {rankedOrder.map((optIdx, rankIdx) => (
+                      <SortableRankItem key={optIdx} id={String(optIdx)} optIdx={optIdx} rankIdx={rankIdx} label={options[optIdx]?.label ?? ""} />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
             </div>
           )}
 

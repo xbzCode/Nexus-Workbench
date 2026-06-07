@@ -283,3 +283,26 @@ def get_task_files(task_id: uuid.UUID) -> list[dict[str, Any]]:
     base_workspace = os.path.abspath(settings.WORKSPACE_DIR)
     workspace_dir = os.path.join(base_workspace, str(task_id))
     return _collect_task_files(workspace_dir)
+
+
+def get_task_workspace_dir(task_id: uuid.UUID) -> Path:
+    """获取任务 workspace 目录的 Path 对象"""
+    base_workspace = os.path.abspath(settings.WORKSPACE_DIR)
+    return Path(os.path.join(base_workspace, str(task_id)))
+
+
+def get_task_file_path(task_id: uuid.UUID, file_path: str) -> Path | None:
+    """获取任务 workspace 中指定文件的完整路径
+
+    Args:
+        task_id: 任务 ID
+        file_path: 相对于 workspace 的文件路径
+
+    Returns:
+        文件的完整 Path，如不存在返回 None
+    """
+    workspace_dir = get_task_workspace_dir(task_id)
+    full_path = workspace_dir / file_path
+    if full_path.exists():
+        return full_path
+    return None

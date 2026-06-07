@@ -11,7 +11,7 @@ import type { Approval, SnapshotItem, ExecutionPathItem, FileEntry } from "@/lib
 import {
   Bell, ScrollText, Camera, Route, File as FileIcon, FileText, Folder,
   ChevronUp, ChevronDown, RotateCcw, Star, Download, Loader2,
-  FileCode,
+  FileCode, Eye,
 } from "lucide-react";
 
 type BottomTab = "log" | "approval" | "snapshots" | "paths" | "files";
@@ -29,6 +29,7 @@ function getFileIcon(fp: string) {
 }
 
 interface LeftBottomPanelProps {
+  taskId: string;
   approvals: Approval[];
   pendingApprovals: Approval[];
   snapshots: SnapshotItem[];
@@ -42,6 +43,7 @@ interface LeftBottomPanelProps {
   onRollback: (id: string) => void;
   onPrecipitate: (id: string) => void;
   onRatePath: (id: string, rating: number) => void;
+  onPreviewFile: (filePath: string) => void;
   actionLoading: string | null;
 }
 
@@ -49,8 +51,8 @@ const PANEL_HEIGHT_EXPANDED = 280;
 const PANEL_HEIGHT_COLLAPSED = 36;
 
 export default function LeftBottomPanel({
-  approvals, pendingApprovals, snapshots, execPaths, files, logEvents,
-  onResolveApproval, onApprovalDetail, onRollback, onPrecipitate, onRatePath, actionLoading,
+  taskId, approvals, pendingApprovals, snapshots, execPaths, files, logEvents,
+  onResolveApproval, onApprovalDetail, onRollback, onPrecipitate, onRatePath, onPreviewFile, actionLoading,
 }: LeftBottomPanelProps) {
   const [activeTab, setActiveTab] = useState<BottomTab>("log");
   const [isExpanded, setIsExpanded] = useState(false); // 默认折叠
@@ -287,11 +289,31 @@ export default function LeftBottomPanel({
                   </div>
                   {files.map((f, i) => {
                     const FI = getFileIcon(f.path);
+                    const isPreviewable = /\.(html?|png|jpe?g|gif|webp|svg|bmp|md|markdown|mdx|txt|json|yml|yaml|toml|xml|log|csv|tsv|py|js|ts|tsx|jsx|css|scss|less|go|rs|java|c|cpp|h|rb|php|sql|sh|bash|env|ini|cfg|conf)$/i.test(f.path);
                     return (
-                      <div key={i} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-surface-hover text-[11px] transition-colors">
+                      <div key={i} className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-surface-hover text-[11px] transition-colors group">
                         <FI className="h-3 w-3 shrink-0 text-brand" />
-                        <span className="flex-1 font-mono text-foreground/70 truncate">{f.path}</span>
+                        <span className="flex-1 font-mono text-foreground/70 truncate min-w-0">{f.path}</span>
                         <span className="text-muted-foreground w-12 text-right shrink-0 tabular-nums text-[10px]">{formatFileSize(f.size)}</span>
+                        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {isPreviewable && (
+                            <button
+                              onClick={() => onPreviewFile(f.path)}
+                              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 hover:text-brand hover:bg-brand/10 transition-colors"
+                              title="预览"
+                            >
+                              <Eye className="h-3 w-3" />
+                            </button>
+                          )}
+                          <a
+                            href={`/api/tasks/${taskId}/files/${f.path}?download=true`}
+                            download
+                            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 hover:text-brand hover:bg-brand/10 transition-colors"
+                            title="下载"
+                          >
+                            <Download className="h-3 w-3" />
+                          </a>
+                        </div>
                       </div>
                     );
                   })}
