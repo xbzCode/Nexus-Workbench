@@ -24,6 +24,8 @@ export interface TaskQueueItem {
   status: TaskQueueStatus;
   /** 创建时间 */
   createdAt: number;
+  /** 用户选择的 Team ID（可选） */
+  teamId?: string | null;
   /** 匹配结果（status >= matched 时存在） */
   matchResult?: MatchResult;
   /** 后端真实任务 ID（已创建时存在） */

@@ -12,6 +12,7 @@ class TaskCreate(BaseModel):
     title: str
     input_data: dict | None = None
     workflow_id: uuid.UUID | None = None
+    team_id: uuid.UUID | None = None  # 可选：指定 Team
     execution_mode: str | None = None  # workflow | dynamic_assembly | bare_agent
     dag: DAGDefinition | None = None  # 动态组装时直接传入 DAG
 
@@ -19,6 +20,8 @@ class TaskCreate(BaseModel):
 class TaskResponse(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID
+    team_id: uuid.UUID | None = None
+    team_name: str | None = None  # 联查 Team 表填充
     title: str
     intent: str | None
     matched_workflow_id: uuid.UUID | None

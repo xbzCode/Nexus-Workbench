@@ -128,8 +128,15 @@ async def _enrich_dag_display_names(
 
 
 async def _enrich_task(task: Any, session: AsyncSession) -> TaskResponse:
-    """将 Task ORM 对象转为 TaskResponse，联查 Workflow 填充 workflow_name 和 dag"""
+    """将 Task ORM 对象转为 TaskResponse，联查 Workflow/Team 填充关联名称和 dag"""
     resp = TaskResponse.model_validate(task)
+
+    # 填充 team_name
+    if task.team_id:
+        from app.services.team_service import get_team
+        team = await get_team(session, task.team_id)
+        if team:
+            resp.team_name = team.display_name
 
     if task.matched_workflow_id:
         wf = await session.get(Workflow, task.matched_workflow_id)
@@ -146,7 +153,7 @@ async def _enrich_task(task: Any, session: AsyncSession) -> TaskResponse:
 
 
 async def _enrich_tasks(tasks: list[Any], session: AsyncSession) -> list[TaskResponse]:
-    """批量填充 workflow_name 和 dag（含节点 display_name）"""
+    """批量填充 workflow_name、team_name 和 dag（含节点 display_name）"""
     # 收集所有 workflow_id 批量查询，避免 N+1
     wf_ids = {t.matched_workflow_id for t in tasks if t.matched_workflow_id}
     wf_map: dict[uuid.UUID, Workflow] = {}
@@ -154,6 +161,15 @@ async def _enrich_tasks(tasks: list[Any], session: AsyncSession) -> list[TaskRes
         result = await session.execute(select(Workflow).where(Workflow.id.in_(wf_ids)))
         for wf in result.scalars().all():
             wf_map[wf.id] = wf
+
+    # 批量查询 team_name
+    team_ids = {t.team_id for t in tasks if t.team_id}
+    team_map: dict[uuid.UUID, str] = {}
+    if team_ids:
+        from app.models.team import Team
+        result = await session.execute(select(Team).where(Team.id.in_(team_ids)))
+        for t in result.scalars().all():
+            team_map[t.id] = t.display_name
 
     # 收集所有 DAG 中的 definition_id（UUID 形式），按 id 批量查 NodeDefinition
     all_def_ids_raw: set[str] = set()
@@ -189,6 +205,9 @@ async def _enrich_tasks(tasks: list[Any], session: AsyncSession) -> list[TaskRes
     enriched = []
     for task in tasks:
         resp = TaskResponse.model_validate(task)
+        # 填充 team_name
+        if task.team_id and task.team_id in team_map:
+            resp.team_name = team_map[task.team_id]
         if task.matched_workflow_id and task.matched_workflow_id in wf_map:
             wf = wf_map[task.matched_workflow_id]
             resp.workflow_name = wf.name

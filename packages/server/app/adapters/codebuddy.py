@@ -157,6 +157,12 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
         input_data = config.get("input_data", {})
         prompt = _render_template(prompt_template, input_data, workspace)
 
+        # 2.5 注入 Team 级领域知识（放在用户输入前面作为 system context）
+        team_prompt = config.get("team_prompt")
+        if team_prompt:
+            prompt = f"{team_prompt}\n\n---\n\n# 用户任务 / User Task\n\n{prompt}"
+            logger.info(f"[Adapter] Injected team_prompt ({len(team_prompt)} chars)")
+
         # 3. 构建命令
         cmd = self._build_cmd(prompt, config)
 

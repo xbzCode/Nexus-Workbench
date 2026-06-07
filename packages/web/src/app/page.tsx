@@ -13,6 +13,7 @@ import MatchResultCard from "@/components/chat/MatchResult";
 import ApprovalCard from "@/components/approval/ApprovalCard";
 import SceneCategories from "@/components/chat/SceneCategories";
 import TaskQueue from "@/components/chat/TaskQueue";
+import { TeamSelector } from "@/components/team/TeamSelector";
 import { DescribeNodeResult, DescribeWorkflowResult } from "@/components/chat/DescribeResult";
 import {
   ArrowRight, Zap, Slash, ExternalLink, CheckCircle2, XCircle,
@@ -149,6 +150,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [showSlash, setShowSlash] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
 
   // ── Describe states (/node, /workflow commands) ──
   const [describeNodeResult, setDescribeNodeResult] = useState<DescribeNodeResponse | null>(null);
@@ -341,6 +343,7 @@ export default function ChatPage() {
       userQuery: text,
       status: "matching",
       createdAt: Date.now(),
+      teamId: selectedTeamId,
     };
 
     setTasks(prev => [...prev, newTask]);
@@ -355,7 +358,7 @@ export default function ChatPage() {
     });
 
     // Call match API
-    const result = await doMatch(text);
+    const result = await doMatch(text, selectedTeamId);
     if (result) {
       updateTask(newTask.id, { status: "matched", matchResult: result });
     } else {
@@ -387,6 +390,9 @@ export default function ChatPage() {
       title: task.userQuery,
       input_data: { user_input: task.userQuery },
     };
+    // Pass team_id from match result or user selection
+    if (task.matchResult.team_id) taskData.team_id = task.matchResult.team_id;
+    else if (task.teamId) taskData.team_id = task.teamId;
     if (task.matchResult.mode === "matched") taskData.workflow_id = task.matchResult.workflow_id ?? null;
     else if (task.matchResult.mode === "dynamic_assembly") {
       taskData.execution_mode = "dynamic_assembly";
@@ -414,7 +420,7 @@ export default function ChatPage() {
     updateTask(queueId, { status: "matching", matchResult: undefined, error: undefined });
     setActiveTaskId(queueId);
 
-    const result = await doMatch(task.userQuery);
+    const result = await doMatch(task.userQuery, task.teamId);
     if (result) {
       updateTask(queueId, { status: "matched", matchResult: result });
     } else {
@@ -532,6 +538,12 @@ export default function ChatPage() {
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* Team selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">Team:</span>
+                <TeamSelector value={selectedTeamId} onChange={setSelectedTeamId} />
+              </div>
 
               {/* Input box */}
               <div className={cn(

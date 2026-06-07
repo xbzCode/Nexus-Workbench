@@ -1,6 +1,7 @@
 ---
 name: gaokao-major-selection
 description: Use when a Chinese high school graduate or parent needs help selecting a college major (本科/专科/高职), evaluating career prospects, or making post-gaokao education decisions - supports both self-assessment and parent-assisted scenarios
+team: data-analysis
 ---
 
 # 高考选专业

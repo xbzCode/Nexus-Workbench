@@ -56,6 +56,7 @@ async def execute_dag(
     task_id: uuid.UUID | None = None,
     workspace_dir: str | None = None,
     mock_mode: bool = True,
+    team_prompt: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """执行 DAG
 
@@ -66,6 +67,7 @@ async def execute_dag(
         task_id: 任务ID（Adapter 模式需要，用于更新 DB）
         workspace_dir: 工作目录（Adapter 模式需要）
         mock_mode: True=Mock 执行，False=真实 Adapter 执行
+        team_prompt: Team 级领域知识，注入到 Adapter 的 system prompt
 
     Returns:
         每个节点的输出 {node_id: output_dict}
@@ -124,6 +126,7 @@ async def execute_dag(
                         workspace_dir=workspace_dir,
                         node_map=node_map,
                         bg_session_factory=bg_session_factory,
+                        team_prompt=team_prompt,
                     )
                 node_outputs[node_id] = result
             except Exception as e:
@@ -226,6 +229,7 @@ async def _execute_node_via_adapter(
     workspace_dir: str | None = None,
     node_map: dict[str, NodeInstance] | None = None,
     bg_session_factory=None,
+    team_prompt: str | None = None,
 ) -> dict[str, Any]:
     """通过真实 Adapter 执行单个节点"""
     event_bus.emit(Event(event_type="dag:node_started", data={"node_id": node_id}, source=node_id, task_id=task_id))
@@ -308,6 +312,7 @@ async def _execute_node_via_adapter(
         "input_data": node_input,
         "allowed_tools": config.get("allowed_tools", ""),
         "workspace": workspace_dir or os.path.join(".", "workspace"),
+        "team_prompt": team_prompt,  # Team 级领域知识注入
     }
 
     # 7.1 skill 节点：传递 skill_dir + node_files + 用短 prompt 引导 Agent 读取指令文件

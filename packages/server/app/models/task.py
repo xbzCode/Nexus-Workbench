@@ -15,6 +15,7 @@ class Task(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "tasks"
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id"), index=True)
     title: Mapped[str] = mapped_column(Text)
     intent: Mapped[str | None] = mapped_column(Text)
     matched_workflow_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("workflows.id"))

@@ -49,10 +49,16 @@ async def _enrich_match_dag(result: MatchResult, session: AsyncSession) -> None:
 async def match(body: MatchRequest, session: AsyncSession = Depends(get_session)):
     """根据用户自然语言输入匹配工作流
 
-    三档降级：已有工作流匹配 → 动态组装 → 裸Agent
+    支持 Team 范围匹配：如果指定 team_id，仅在 Team 内匹配；
+    未指定则先 LLM 智能匹配 Team，再在 Team 范围内匹配工作流/节点；
+    Team 匹配失败则降级为全局匹配。
+
+    四档降级：Team匹配 → Team内Workflow匹配 → Team内动态组装 → bare-Agent
     """
     try:
-        result = await match_service.match(body.user_input, session, TEMP_USER_ID)
+        result = await match_service.match(
+            body.user_input, session, TEMP_USER_ID, team_id=body.team_id
+        )
         await _enrich_match_dag(result, session)
         return APIResponse(data=result)
     except Exception as e:

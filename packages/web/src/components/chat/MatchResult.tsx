@@ -85,6 +85,13 @@ export default function MatchResultCard({
         )}
       </div>
 
+      {/* Team badge — shown when team is matched */}
+      {result.team_name && (
+        <div className="flex items-center gap-2 px-5 py-2 bg-brand/5 border-b border-border/30">
+          <span className="text-xs font-medium text-brand">👥 {result.team_name}</span>
+        </div>
+      )}
+
       {/* Body */}
       <motion.div className="p-5 space-y-4" variants={staggerItems} initial="hidden" animate="visible">
         {/* Workflow / node chain */}

@@ -2,6 +2,7 @@
 name: refine-requirements
 description: "需求细化节点：先向用户提问确认细节，再执行任务"
 version: 1.0.0
+team: document-engineering
 ---
 
 # 需求细化 Skill

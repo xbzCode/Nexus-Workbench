@@ -49,6 +49,7 @@ async def create_task(session: AsyncSession, user_id: uuid.UUID, data: TaskCreat
 
     task = Task(
         user_id=user_id,
+        team_id=data.team_id,
         title=data.title,
         matched_workflow_id=data.workflow_id,
         input_data=data.input_data,
@@ -135,6 +136,17 @@ async def start_task(
         """后台任务 — 使用独立 session 更新状态"""
         async with async_session_factory() as bg_session:
             try:
+                # 获取 Team 的 team_prompt（如果有 team_id）
+                team_prompt = None
+                if task.team_id:
+                    from app.services.team_service import get_team
+                    team = await get_team(bg_session, task.team_id)
+                    if team and team.team_prompt:
+                        team_prompt = team.team_prompt
+                        logger.info(
+                            f"[Task] Using team_prompt from Team「{team.name}」"
+                        )
+
                 node_outputs = await execute_dag(
                     dag=dag,
                     event_bus=event_bus,
@@ -142,6 +154,7 @@ async def start_task(
                     task_id=task_id,
                     workspace_dir=workspace_dir,
                     mock_mode=False,
+                    team_prompt=team_prompt,
                 )
                 # 更新任务状态（如果 engine 没有更新）
                 bg_task = await bg_session.get(Task, task_id)

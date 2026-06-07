@@ -73,6 +73,8 @@ export interface WorkflowUpdate {
 export interface Task {
   id: string;
   user_id: string;
+  team_id?: string | null;
+  team_name?: string | null;
   title: string;
   intent?: string | null;
   matched_workflow_id?: string | null;
@@ -93,6 +95,7 @@ export interface TaskCreate {
   title: string;
   input_data?: Record<string, unknown> | null;
   workflow_id?: string | null;
+  team_id?: string | null;
   execution_mode?: string | null;
   dag?: DAGDefinition | null;
 }
@@ -158,16 +161,58 @@ export interface SSEEvent {
 
 export interface MatchRequest {
   user_input: string;
+  team_id?: string | null;
 }
 
 export interface MatchResult {
   mode: "matched" | "dynamic_assembly" | "bare_agent";
   workflow_id?: string | null;
   workflow_name?: string | null;
+  team_id?: string | null;
+  team_name?: string | null;
   confidence?: number | null;
   dag?: DAGDefinition | null;
   reasoning?: string | null;
   available_workflow_names?: string[] | null;
+}
+
+// ── Team ──
+
+export interface Team {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string | null;
+  icon?: string | null;
+  team_prompt?: string | null;
+  default_adapter_type: string;
+  workflow_ids: string[];
+  node_definition_ids: string[];
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamCreate {
+  name: string;
+  display_name: string;
+  description?: string | null;
+  icon?: string | null;
+  team_prompt?: string | null;
+  default_adapter_type?: string;
+  workflow_ids?: string[];
+  node_definition_ids?: string[];
+}
+
+export interface TeamUpdate {
+  display_name?: string | null;
+  description?: string | null;
+  icon?: string | null;
+  team_prompt?: string | null;
+  default_adapter_type?: string | null;
+  workflow_ids?: string[] | null;
+  node_definition_ids?: string[] | null;
+  status?: string | null;
 }
 
 // ── Describe (自然语言创建) ──

@@ -2,10 +2,13 @@
 
 第二档匹配：未命中已有工作流时，用 LLM 从已注册节点中挑选并编排 DAG。
 LLM 返回 confidence，低于 ASSEMBLY_CONFIDENCE_THRESHOLD 时视为组装失败。
+
+支持全局组装和 Team scope 组装两种模式。
 """
 
 import json
 import logging
+import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 async def assemble(user_input: str, session: AsyncSession) -> MatchResult | None:
-    """尝试动态组装 DAG
+    """全局动态组装 DAG（第二档）
 
     Args:
         user_input: 用户自然语言输入
@@ -36,13 +39,58 @@ async def assemble(user_input: str, session: AsyncSession) -> MatchResult | None
         return None
 
     logger.info(f"[Assembly] 找到 {len(published)} 个已发布节点: {[n.name for n in published]}")
+    return await _assemble_from_nodes(user_input, published)
 
-    # 2. 构建节点摘要（精简，避免 token 浪费）
-    #    同时建立 name → UUID / display_name 映射，供后续 DAG 组装使用
+
+async def assemble_scoped(
+    user_input: str, session: AsyncSession, team_id: "uuid.UUID"
+) -> MatchResult | None:
+    """Team scope 动态组装 DAG（第二档）
+
+    仅从 Team 关联的 node_definition_ids 中挑选节点编排 DAG。
+
+    Args:
+        user_input: 用户自然语言输入
+        session: DB session
+        team_id: Team ID
+
+    Returns:
+        MatchResult(dynamic_assembly) 或 None
+    """
+    from app.services.team_service import get_team_nodes, get_team
+
+    team = await get_team(session, team_id)
+    if not team:
+        logger.warning(f"[Assembly:Team] Team 不存在: {team_id}")
+        return None
+
+    nodes = await get_team_nodes(session, team)
+    if not nodes:
+        logger.info(f"[Assembly:Team] Team「{team.name}」没有已发布的节点，跳过动态组装")
+        return None
+
+    # 排除 bare-agent
+    published = [n for n in nodes if n.name != "bare-agent"]
+    if not published:
+        logger.info(f"[Assembly:Team] Team「{team.name}」的节点均为 bare-agent，跳过动态组装")
+        return None
+
+    logger.info(
+        f"[Assembly:Team] Team「{team.name}」有 {len(published)} 个可用节点: "
+        f"{[n.name for n in published]}"
+    )
+    return await _assemble_from_nodes(user_input, published)
+
+
+async def _assemble_from_nodes(
+    user_input: str, nodes: list,
+) -> MatchResult | None:
+    """从给定节点列表中用 LLM 编排 DAG"""
+    # 构建节点摘要
     node_summaries = []
     name_to_uuid: dict[str, str] = {}
     name_to_display_name: dict[str, str] = {}
-    for n in published:
+    for n in nodes:
         summary = {"name": n.name, "display_name": n.display_name}
         if n.description:
             summary["description"] = n.description
@@ -52,12 +100,7 @@ async def assemble(user_input: str, session: AsyncSession) -> MatchResult | None
         name_to_uuid[n.name] = str(n.id)
         name_to_display_name[n.name] = n.display_name or n.name
 
-    # 3. 调用 LLM 语义匹配 + 组装
-    dag = await _llm_assemble(user_input, node_summaries, name_to_uuid, name_to_display_name)
-    if dag is not None:
-        return dag
-
-    return None
+    return await _llm_assemble(user_input, node_summaries, name_to_uuid, name_to_display_name)
 
 
 async def _llm_assemble(

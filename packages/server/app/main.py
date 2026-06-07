@@ -29,6 +29,7 @@ async def lifespan(app: FastAPI):
         from app.config.database import async_session_factory
         from app.services.user_service import ensure_temp_user
         from app.services.extension_sync import sync_extensions
+        from app.services.team_service import ensure_default_teams
         from app.api.deps import TEMP_USER_ID
 
         async with async_session_factory() as session:
@@ -40,6 +41,11 @@ async def lifespan(app: FastAPI):
         async with async_session_factory() as session:
             count = await sync_extensions(session, TEMP_USER_ID)
         logger.info("[lifespan] Extension nodes synced: %d", count)
+
+        # 种子 Team 数据
+        async with async_session_factory() as session:
+            team_count = await ensure_default_teams(session)
+        logger.info("[lifespan] Default teams ensured: %d", team_count)
     except Exception as e:
         logger.warning("[lifespan] DB not available, skipping seed: %s", e)
 

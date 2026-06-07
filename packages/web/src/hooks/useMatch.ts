@@ -11,15 +11,15 @@ export function useMatch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const match = useCallback(async (userInput: string) => {
+  const match = useCallback(async (userInput: string, teamId?: string | null) => {
     setLoading(true);
     setError(null);
     setResult(null);
     try {
       // 3 分钟安全网超时，后端耗时不可预估，正常等待即可
-      const res = await api.post<APIResponse<MatchResult>>("/match", {
-        user_input: userInput,
-      }, 3 * 60 * 1000);
+      const body: Record<string, unknown> = { user_input: userInput };
+      if (teamId) body.team_id = teamId;
+      const res = await api.post<APIResponse<MatchResult>>("/match", body, 3 * 60 * 1000);
       setResult(res.data);
       return res.data;
     } catch (e: unknown) {

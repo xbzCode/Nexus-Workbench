@@ -12,6 +12,7 @@ import {
   Play,
   Workflow,
   Blocks,
+  Users,
   Sun,
   Moon,
   Bell,
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
   { href: "/tasks", label: "Tasks", icon: Play },
   { href: "/workflows", label: "Workflows", icon: Workflow },
   { href: "/nodes", label: "Nodes", icon: Blocks },
+  { href: "/teams", label: "Teams", icon: Users },
   { href: "/approvals", label: "Approvals", icon: ShieldCheck },
 ];
 

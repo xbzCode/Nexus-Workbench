@@ -95,6 +95,7 @@ def parse_skill_md(skill_md_path: Path) -> dict | None:
         "display_name": frontmatter.get("display_name", name.replace("-", " ").title()),
         "description": description,
         "category": frontmatter.get("category"),
+        "team": frontmatter.get("team"),  # 可选：归属的 Team name
         "version": version,
         "skill_md_text": text,
         "frontmatter": frontmatter,
@@ -170,6 +171,11 @@ async def sync_extensions(session: AsyncSession, user_id: uuid.UUID) -> int:
         # 同步附件文件（templates/ 等）
         await _sync_node_files(session, child, node_name, existing)
 
+        # 关联到 Team（如果 SKILL.md 中指定了 team）
+        team_name = parsed.get("team")
+        if team_name:
+            await _link_node_to_team(session, node_name, team_name)
+
         synced += 1
 
     if synced > 0:
@@ -177,6 +183,51 @@ async def sync_extensions(session: AsyncSession, user_id: uuid.UUID) -> int:
 
     logger.info(f"[ExtensionSync] Synced {synced} extension nodes")
     return synced
+
+
+async def _link_node_to_team(
+    session: AsyncSession,
+    node_name: str,
+    team_name: str,
+) -> None:
+    """将节点关联到指定 Team
+
+    如果 Team 不存在则静默跳过（不阻塞同步）。
+    """
+    try:
+        from app.services.team_service import get_team_by_name
+        from app.models.team import Team
+
+        team = await get_team_by_name(session, team_name)
+        if not team:
+            logger.warning(
+                f"[ExtensionSync] Team '{team_name}' not found, "
+                f"skipping team link for node '{node_name}'"
+            )
+            return
+
+        # 获取节点 ID
+        stmt = select(NodeDefinition.id).where(NodeDefinition.name == node_name)
+        result = await session.execute(stmt)
+        node_row = result.first()
+        if not node_row:
+            return
+
+        node_id_str = str(node_row[0])
+
+        # 添加到 team 的 node_definition_ids（去重）
+        current_ids = list(team.node_definition_ids) if team.node_definition_ids else []
+        if node_id_str not in current_ids:
+            current_ids.append(node_id_str)
+            team.node_definition_ids = current_ids
+            logger.info(
+                f"[ExtensionSync] Linked node '{node_name}' to Team '{team_name}'"
+            )
+    except Exception as e:
+        logger.warning(
+            f"[ExtensionSync] Failed to link node '{node_name}' to Team "
+            f"'{team_name}': {e}"
+        )
 
 
 async def _sync_node_files(

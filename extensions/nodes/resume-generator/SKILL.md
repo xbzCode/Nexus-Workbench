@@ -2,6 +2,7 @@
 name: resume-generator
 description: 生成现代简约风格的中文简历，输出为自包含HTML文件，支持浏览器打印和一键导出PDF。当用户要求"生成简历"、"制作简历"、"写简历"、"导出简历"时触发。
 version: 1.0.0
+team: document-engineering
 metadata:
   author: jianjian
   language: zh-CN

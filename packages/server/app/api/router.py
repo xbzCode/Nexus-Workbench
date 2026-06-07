@@ -10,12 +10,14 @@ from app.api.match import router as match_router
 from app.api.nodes import router as nodes_router
 from app.api.snapshots import router as snapshots_router
 from app.api.tasks import router as tasks_router
+from app.api.teams import router as teams_router
 from app.api.workflows import router as workflows_router
 
 api_router = APIRouter()
 
 api_router.include_router(match_router, prefix="/match", tags=["match"])
 api_router.include_router(describe_router, prefix="/describe", tags=["describe"])
+api_router.include_router(teams_router, prefix="/teams", tags=["teams"])
 api_router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])
 api_router.include_router(nodes_router, prefix="/nodes", tags=["nodes"])
 api_router.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
