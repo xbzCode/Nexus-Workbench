@@ -37,6 +37,18 @@ class ProgressUpdateEvent(AdapterEvent):
 
 
 @dataclass
+class AgentOutputTextEvent(AdapterEvent):
+    """Agent 完整输出文本（由 Adapter 在收到 result 时发出）
+
+    职责：携带 Agent 本轮完整输出文本，供 Engine 做提问检测。
+    本事件替代了原有的文本拼接（ProgressUpdateEvent chunks），
+    提供单一权威的文本来源。
+    注意：本事件不代表 Agent 一定在提问，只是提供完整文本供检测。
+    """
+    raw_text: str = ""  # Agent 本轮完整输出文本
+
+
+@dataclass
 class ExecutionCompletedEvent(AdapterEvent):
     """执行完成"""
     output: dict = field(default_factory=dict)

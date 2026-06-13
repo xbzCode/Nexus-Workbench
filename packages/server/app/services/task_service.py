@@ -89,9 +89,6 @@ async def start_task(
         task: Task 实例
         workflow_dag: 工作流的 DAG（JSONB dict），如无则用空 DAG
     """
-    from app.config.logging import get_task_logger
-    tlog = get_task_logger()
-
     if task.status not in ("pending", "paused"):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Task status is {task.status}, cannot start")
@@ -130,19 +127,6 @@ async def start_task(
     await session.commit()
     await session.refresh(task)
 
-    # ── 任务执行调试日志：任务启动 ──
-    tlog.info("=" * 80)
-    tlog.info("TASK START | task_id=%s | mode=%s | team_id=%s",
-              task.id, task.execution_mode, task.team_id)
-    tlog.info("TASK START | title=%s", task.title)
-    tlog.info("TASK START | input_data=%s",
-              json.dumps(task.input_data, ensure_ascii=False, default=str)[:500])
-    tlog.info("TASK START | DAG nodes=%s",
-              [(n.id, n.definition_id) for n in dag.nodes])
-    tlog.info("TASK START | DAG edges=%s",
-              [(e.source_id, e.target_id) for e in dag.edges])
-    tlog.info("-" * 80)
-
     # 在后台执行 DAG
     event_bus = get_event_bus()
     task_id = task.id
@@ -157,6 +141,21 @@ async def start_task(
 
     async def _run():
         """后台任务 — 使用独立 session 更新状态"""
+        from app.config.logging import set_current_task_id, close_task_log, tlog, task_summary, phase_header, phase_footer
+        # 设置任务上下文，后续所有 tlog 输出自动路由到 logs/tasks/{task_id}.log
+        set_current_task_id(str(task_id))
+
+        # ── 任务启动 ──
+        phase_header("TASK", f"task_id={task_id} | mode={task.execution_mode} | team_id={task.team_id}")
+        tlog().info("TASK | title=%s", task.title)
+        tlog().info("TASK | input_data=%s",
+                  json.dumps(task.input_data, ensure_ascii=False, default=str)[:500])
+        tlog().info("TASK | DAG nodes=%s",
+                  [(n.id, n.definition_id) for n in dag.nodes])
+        tlog().info("TASK | DAG edges=%s",
+                  [(e.source_id, e.target_id) for e in dag.edges])
+        task_summary("[TASK] Started: %s (mode=%s)", task.title, task.execution_mode)
+
         async with async_session_factory() as bg_session:
             try:
                 await execute_dag(
@@ -182,6 +181,8 @@ async def start_task(
                         data={"task_id": str(task_id)},
                         task_id=task_id,
                     ))
+                phase_footer("TASK", f"task_id={task_id} | status=completed")
+                task_summary("[TASK] Completed: %s", task.title)
             except DAGExecutionPaused as e:
                 bg_task = await bg_session.get(Task, task_id)
                 if bg_task and bg_task.status == "running":
@@ -203,8 +204,13 @@ async def start_task(
                         data={"task_id": str(task_id), "error": str(e)},
                         task_id=task_id,
                     ))
+                phase_footer("TASK", f"task_id={task_id} | status=failed")
+                task_summary("[TASK] Failed: %s | error=%s", task.title, str(e)[:80])
             finally:
                 _running_tasks.pop(task_id, None)
+                # 清理任务上下文并释放日志文件句柄
+                set_current_task_id(None)
+                close_task_log(str(task_id))
 
     background_task = asyncio.create_task(_run())
     _running_tasks[task_id] = background_task

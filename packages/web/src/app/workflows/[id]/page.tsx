@@ -9,8 +9,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import type { DAGDefinition, WorkflowUpdate } from "@/lib/types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Trash2,
   Loader2,
@@ -20,23 +29,8 @@ import {
   X,
   CheckCircle2,
   Rocket,
-  Archive,
   RotateCcw,
 } from "lucide-react";
-
-// 工作流状态转换配置
-const STATUS_TRANSITIONS: Record<string, { next: string; label: string; icon: typeof Rocket; color: string }[]> = {
-  draft: [
-    { next: "published", label: "发布", icon: Rocket, color: "text-emerald-500 hover:bg-emerald-500/10" },
-  ],
-  published: [
-    { next: "archived", label: "归档", icon: Archive, color: "text-muted-foreground hover:bg-surface-hover" },
-    { next: "draft", label: "撤回草稿", icon: RotateCcw, color: "text-amber hover:bg-amber-muted" },
-  ],
-  archived: [
-    { next: "draft", label: "恢复草稿", icon: RotateCcw, color: "text-amber hover:bg-amber-muted" },
-  ],
-};
 
 export default function WorkflowDetailPage() {
   const params = useParams();
@@ -49,6 +43,7 @@ export default function WorkflowDetailPage() {
   const [editDag, setEditDag] = useState<DAGDefinition | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const { workflow, loading, error, refetch } = useWorkflow(id);
   const { update, remove } = useWorkflowActions();
@@ -90,7 +85,6 @@ export default function WorkflowDetailPage() {
   }, [workflow, id, editName, editDesc, editDag, update]);
 
   const handleDelete = async () => {
-    if (!confirm("确认删除此工作流？")) return;
     await remove(id);
     router.push("/workflows");
   };
@@ -99,21 +93,20 @@ export default function WorkflowDetailPage() {
     setEditDag(newDag);
   }, []);
 
-  const handleStatusTransition = useCallback(
-    async (nextStatus: string) => {
-      if (!workflow) return;
-      setTransitioning(true);
-      try {
-        await update(id, { status: nextStatus });
-        refetch();
-      } catch {
-        // error handling
-      } finally {
-        setTransitioning(false);
-      }
-    },
-    [workflow, id, update]
-  );
+  // 简化状态切换：发布 / 取消发布
+  const handleTogglePublish = useCallback(async () => {
+    if (!workflow) return;
+    setTransitioning(true);
+    try {
+      const nextStatus = workflow.status === "published" ? "draft" : "published";
+      await update(id, { status: nextStatus });
+      refetch();
+    } catch {
+      // error handling
+    } finally {
+      setTransitioning(false);
+    }
+  }, [workflow, id, update]);
 
   if (loading) {
     return (
@@ -136,10 +129,18 @@ export default function WorkflowDetailPage() {
     ? editDag
     : ((workflow.dag ?? null) as DAGDefinition | null);
 
-  const transitions = STATUS_TRANSITIONS[workflow.status] ?? [];
+  const isPublished = workflow.status === "published";
 
   return (
     <div className="flex h-full flex-col">
+      {/* 编辑模式提示条 */}
+      {editing && (
+        <div className="shrink-0 bg-brand-muted border-b border-brand/20 px-6 py-1.5 flex items-center gap-2 text-xs text-brand">
+          <Pencil className="h-3 w-3" />
+          编辑模式 — 修改后点击保存生效
+        </div>
+      )}
+
       {/* Header */}
       <div className="shrink-0 border-b border-border bg-background px-6 py-4">
         <div className="flex items-start justify-between">
@@ -203,9 +204,6 @@ export default function WorkflowDetailPage() {
               )}
               <span>{dag?.nodes?.length ?? 0} 节点</span>
               <span>{dag?.edges?.length ?? 0} 连线</span>
-              {editing && (
-                <span className="text-violet font-medium">编辑中</span>
-              )}
             </div>
           </div>
 
@@ -232,27 +230,22 @@ export default function WorkflowDetailPage() {
               </>
             ) : (
               <>
-                {/* 状态转换按钮 */}
-                {transitions.map((t) => {
-                  const Icon = t.icon;
-                  return (
-                    <Button
-                      key={t.next}
-                      variant="outline"
-                      size="sm"
-                      className={t.color}
-                      onClick={() => handleStatusTransition(t.next)}
-                      disabled={transitioning}
-                    >
-                      {transitioning ? (
-                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Icon className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      {t.label}
-                    </Button>
-                  );
-                })}
+                {/* 发布/取消发布 Toggle */}
+                <Button
+                  variant={isPublished ? "outline" : "default"}
+                  size="sm"
+                  onClick={handleTogglePublish}
+                  disabled={transitioning}
+                >
+                  {transitioning ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : isPublished ? (
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  ) : (
+                    <Rocket className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  {isPublished ? "取消发布" : "发布"}
+                </Button>
                 <Button size="sm" onClick={startEditing}>
                   <Pencil className="mr-1.5 h-3.5 w-3.5" />
                   编辑
@@ -261,7 +254,7 @@ export default function WorkflowDetailPage() {
                   variant="outline"
                   size="sm"
                   className="text-destructive hover:text-destructive"
-                  onClick={handleDelete}
+                  onClick={() => setDeleteDialogOpen(true)}
                 >
                   <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                   删除
@@ -271,6 +264,29 @@ export default function WorkflowDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* 删除确认弹框 */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除工作流</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除{" "}
+              <span className="font-medium text-foreground">{workflow.name}</span>{" "}
+              吗？此操作不可撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
+            >
+              确认删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* DAG visualization */}
       <div className="flex-1 p-6">

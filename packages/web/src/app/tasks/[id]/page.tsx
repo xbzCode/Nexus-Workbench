@@ -3,7 +3,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { useSSE } from "@/hooks/useSSE";
 import { cn } from "@/lib/utils";
@@ -14,9 +14,20 @@ import LeftBottomPanel from "@/components/task/LeftBottomPanel";
 import FilePreviewDialog from "@/components/task/FilePreviewDialog";
 import { ApprovalDialog } from "@/components/approval/ApprovalDialog";
 import type {
-  APIResponse, Task, Step, Approval, DAGDefinition,
+  APIResponse, Task, Step, Approval, ApprovalListData, DAGDefinition,
   FileEntry,
 } from "@/lib/types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 import { Loader2, GripVertical } from "lucide-react";
 
 interface FileEntryLocal extends FileEntry { path: string; size: number; modified_at: string; }
@@ -27,28 +38,6 @@ interface ExecutionPathItemLocal { id: string; task_id: string; source: string; 
 const DEFAULT_LEFT_RATIO = 60;
 const MIN_LEFT_RATIO = 40;
 const MAX_LEFT_RATIO = 75;
-
-/** 从审批结果中提取用户回复的摘要文本 */
-function extractApprovalResult(result: Record<string, unknown>, type?: string): string {
-  if (result.answer) return String(result.answer);
-  if (result.yes !== undefined) return result.yes ? "是" : "否";
-  if (result.choices) {
-    const choices = result.choices as string[];
-    return `选择了: ${choices.join(", ")}`;
-  }
-  if (result.choice) return `选择了: ${String(result.choice)}`;
-  if (result.labels) {
-    const labels = result.labels as string[];
-    return `排序: ${labels.join(" > ")}`;
-  }
-  if (result.ranked) {
-    const ranked = result.ranked as string[];
-    return `排序: ${ranked.join(" > ")}`;
-  }
-  // fallback
-  const str = JSON.stringify(result);
-  return str.length > 100 ? str.slice(0, 100) + "..." : str;
-}
 
 export default function TaskDetailPage() {
   const params = useParams();
@@ -69,6 +58,11 @@ export default function TaskDetailPage() {
   const [dialogApproval, setDialogApproval] = useState<Approval | null>(null);
   const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [rollbackDialogOpen, setRollbackDialogOpen] = useState(false);
+  const [rollbackSnapshotId, setRollbackSnapshotId] = useState<string | null>(null);
+  const [precipitateDialogOpen, setPrecipitateDialogOpen] = useState(false);
+  const [precipitatePathId, setPrecipitatePathId] = useState<string | null>(null);
+  const [precipitateName, setPrecipitateName] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // SSE
@@ -81,14 +75,14 @@ export default function TaskDetailPage() {
       const [t, st, ap, sn, ep, fl] = await Promise.all([
         api.get<APIResponse<Task>>(`/tasks/${id}`),
         api.get<APIResponse<Step[]>>(`/tasks/${id}/steps`),
-        api.get<APIResponse<Approval[]>>(`/approvals?task_id=${id}`).catch(() => ({ data: null } as APIResponse<Approval[]>)),
+        api.get<APIResponse<ApprovalListData>>(`/approvals?task_id=${id}`).catch(() => ({ data: null } as APIResponse<ApprovalListData>)),
         api.get<APIResponse<SnapshotItemLocal[]>>(`/snapshots?task_id=${id}`).catch(() => ({ data: null } as APIResponse<SnapshotItemLocal[]>)),
         api.get<APIResponse<ExecutionPathItemLocal[]>>(`/execution-paths?task_id=${id}`).catch(() => ({ data: null } as APIResponse<ExecutionPathItemLocal[]>)),
         api.get<APIResponse<FileEntryLocal[]>>(`/tasks/${id}/files`).catch(() => ({ data: null } as APIResponse<FileEntryLocal[]>)),
       ]);
       setTask(t.data);
       setSteps(st.data ?? []);
-      setApprovals(ap.data ?? []);
+      setApprovals(ap.data?.items ?? []);
       setSnapshots(sn.data ?? []);
       setExecPaths(ep.data ?? []);
       setFiles(fl.data ?? []);
@@ -130,18 +124,28 @@ export default function TaskDetailPage() {
   }, [fetchData]);
 
   const handleRollback = async (sid: string) => {
-    if (!confirm("确认回滚到此快照？")) return;
+    setRollbackSnapshotId(sid);
+    setRollbackDialogOpen(true);
+  };
+
+  const confirmRollback = async () => {
+    if (!rollbackSnapshotId) return;
     setActionLoading("rollback");
-    try { await api.post(`/snapshots/${sid}/rollback`); await fetchData(); }
-    catch {} finally { setActionLoading(null); };
+    try { await api.post(`/snapshots/${rollbackSnapshotId}/rollback`); await fetchData(); }
+    catch {} finally { setActionLoading(null); setRollbackDialogOpen(false); };
   };
 
   const handlePrecipitate = async (pid: string) => {
-    const n = prompt("工作流名称:");
-    if (!n?.trim()) return;
+    setPrecipitatePathId(pid);
+    setPrecipitateName("");
+    setPrecipitateDialogOpen(true);
+  };
+
+  const confirmPrecipitate = async () => {
+    if (!precipitatePathId || !precipitateName.trim()) return;
     setActionLoading("precipitate");
-    try { await api.post(`/execution-paths/${pid}/precipitate`, { workflow_name: n.trim() }); await fetchData(); }
-    catch {} finally { setActionLoading(null); };
+    try { await api.post(`/execution-paths/${precipitatePathId}/precipitate`, { workflow_name: precipitateName.trim() }); await fetchData(); }
+    catch {} finally { setActionLoading(null); setPrecipitateDialogOpen(false); };
   };
 
   // 快速发送
@@ -169,16 +173,26 @@ export default function TaskDetailPage() {
     const startRatio = leftRatio;
     const container = containerRef.current;
 
+    // 拖拽期间防止文字选中
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+
     const onMouseMove = (ev: MouseEvent) => {
       if (!container) return;
       const containerW = container.clientWidth;
-      const deltaX = ev.clientX - startX; // 向右拖 → 左侧变大
+      const deltaX = ev.clientX - startX;
       const deltaRatio = (deltaX / containerW) * 100;
       const newRatio = Math.round(Math.min(Math.max(startRatio + deltaRatio, MIN_LEFT_RATIO), MAX_LEFT_RATIO));
       setLeftRatio(newRatio);
     };
 
-    const onMouseUp = () => { setIsResizing(false); document.removeEventListener("mousemove", onMouseMove); document.removeEventListener("mouseup", onMouseUp); };
+    const onMouseUp = () => {
+      setIsResizing(false);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
   }, [leftRatio]);
@@ -201,68 +215,6 @@ export default function TaskDetailPage() {
   const completedNodes = steps.filter(s => s.status === "completed").length;
   const failedNodes = steps.filter(s => s.status === "failed").length;
   const pendingApprovals = approvals.filter(a => a.status === "pending");
-
-  // Log events — 提取有意义的内容用于日志展示
-  const logEvents = useMemo(() => {
-    const evts: { event: string; data: Record<string, unknown>; ts?: string }[] = [];
-
-    // 步骤事件：提取 text 和 error 信息
-    for (const s of steps) {
-      const text = (s.output_data as Record<string, unknown>)?.text;
-      const error = s.error;
-      evts.push({
-        event: s.status === "completed" ? "dag:node_completed" : s.status === "failed" ? "dag:node_failed" : "dag:node_started",
-        data: {
-          node_id: s.node_id,
-          text: text ? String(text).slice(0, 200) : undefined,
-          error: error ? (typeof error === "string" ? error : JSON.stringify(error).slice(0, 200)) : undefined,
-        },
-        ts: (s.completed_at ?? s.started_at) ?? undefined,
-      });
-    }
-
-    // 审批事件：拆分为「提问」和「回复」两条日志
-    for (const a of approvals) {
-      // 提问事件
-      evts.push({
-        event: "approval:question",
-        data: {
-          approval_id: a.id,
-          type: a.type,
-          title: a.title,
-          description: a.description ? String(a.description).slice(0, 200) : undefined,
-          node_id: a.context_data?.node_id ? String(a.context_data.node_id) : undefined,
-        },
-        ts: a.created_at,
-      });
-      // 已解决时，追加回复事件
-      if (a.status !== "pending" && a.resolved_at) {
-        evts.push({
-          event: `approval:${a.status}`,
-          data: {
-            approval_id: a.id,
-            title: a.title,
-            result: a.result ? extractApprovalResult(a.result, a.type) : undefined,
-          },
-          ts: a.resolved_at,
-        });
-      }
-    }
-
-    // SSE 事件：保留 content 字段用于日志展示
-    for (const e of sseEvents) {
-      evts.push({ event: e.event, data: e.data, ts: e.timestamp });
-    }
-
-    // 按时间升序排序（最旧在上，最新在下）
-    evts.sort((a, b) => {
-      const ta = a.ts ? new Date(a.ts).getTime() : 0;
-      const tb = b.ts ? new Date(b.ts).getTime() : 0;
-      return ta - tb;
-    });
-
-    return evts;
-  }, [steps, approvals, sseEvents]);
 
   const isRunning = task?.status === "running";
 
@@ -317,15 +269,18 @@ export default function TaskDetailPage() {
                 </div>
               </div>
 
-              {/* 左侧底部：日志/审批/快照等 Tab 面板 */}
+              {/* 左侧底部：时间线/审批/快照等 Tab 面板 */}
               <LeftBottomPanel
                 taskId={id}
+                steps={steps}
                 approvals={approvals}
                 pendingApprovals={pendingApprovals}
                 snapshots={snapshots}
                 execPaths={execPaths}
                 files={files}
-                logEvents={logEvents}
+                taskStartedAt={task?.started_at ?? null}
+                taskCompletedAt={task?.completed_at ?? null}
+                taskStatus={task?.status ?? "pending"}
                 nodeNameMap={nodeNameMap}
                 onResolveApproval={handleResolveApproval}
                 onApprovalDetail={setDialogApproval}
@@ -337,20 +292,18 @@ export default function TaskDetailPage() {
               />
             </div>
 
-            {/* 可拖拽分割线 */}
+            {/* 可拖拽分割线 — hover 区域加大，视觉指示器细线 */}
             <div
               className={cn(
-                "shrink-0 w-[5px] flex items-center justify-center cursor-col-resize hover:bg-brand/20 transition-colors group relative",
-                isResizing && "bg-brand/30"
+                "shrink-0 w-[12px] flex items-center justify-center cursor-col-resize group relative",
+                isResizing && "bg-brand/10"
               )}
               onMouseDown={handleDragStart}
             >
-              <GripVertical
-                className={cn(
-                  "h-4 w-4 text-muted-foreground/20 transition-colors",
-                  isResizing ? "text-brand/50" : "group-hover:text-muted-foreground/40"
-                )}
-              />
+              <div className={cn(
+                "w-[3px] rounded-full h-8 transition-all",
+                isResizing ? "bg-brand/50" : "bg-border/60 group-hover:bg-brand/30"
+              )} />
             </div>
 
             {/* 右侧：行动中心 (清爽) */}
@@ -377,6 +330,57 @@ export default function TaskDetailPage() {
             taskId={id}
             onClose={() => setPreviewFilePath(null)}
           />
+
+          {/* 回滚确认弹框 */}
+          <AlertDialog open={rollbackDialogOpen} onOpenChange={setRollbackDialogOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>确认回滚</AlertDialogTitle>
+                <AlertDialogDescription>
+                  确定要回滚到此快照吗？当前工作区的更改将被覆盖，此操作不可撤销。
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>取消</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={confirmRollback}
+                  className="bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
+                >
+                  确认回滚
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* 沉淀工作流弹框 */}
+          <AlertDialog open={precipitateDialogOpen} onOpenChange={setPrecipitateDialogOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>沉淀为工作流</AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-3">
+                    <p>将此执行路径沉淀为可复用的工作流模板。</p>
+                    <Input
+                      placeholder="输入工作流名称"
+                      value={precipitateName}
+                      onChange={(e) => setPrecipitateName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") confirmPrecipitate(); }}
+                      autoFocus
+                    />
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>取消</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={confirmPrecipitate}
+                  disabled={!precipitateName.trim()}
+                >
+                  确认创建
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
     </div>

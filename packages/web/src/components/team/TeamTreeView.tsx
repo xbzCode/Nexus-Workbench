@@ -282,15 +282,38 @@ interface TeamTreeViewProps {
 
 export default function TeamTreeView({ teams, onEditTeam, onDeleteTeam }: TeamTreeViewProps) {
   const [teamResources, setTeamResources] = useState<Record<string, TeamResources>>({});
+  // Track resource signature per team to detect changes after edit
+  const [teamSignatures, setTeamSignatures] = useState<Record<string, string>>({});
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [nodes, setNodes] = useState<Node<TreeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
 
-  // Load resources for all active teams
+  // Load resources for all active teams; invalidate when signature changes
   useEffect(() => {
     for (const team of teams) {
-      if (team.status !== "active" || teamResources[team.id]) continue;
+      if (team.status !== "active") continue;
+
+      const sig = JSON.stringify([team.workflow_ids || [], team.node_definition_ids || []]);
+      const prevSig = teamSignatures[team.id];
+
+      // Signature changed → clear stale cache
+      if (prevSig !== undefined && prevSig !== sig) {
+        setTeamResources((prev) => {
+          const next = { ...prev };
+          delete next[team.id];
+          return next;
+        });
+      }
+
+      // Update signature
+      if (prevSig !== sig) {
+        setTeamSignatures((prev) => ({ ...prev, [team.id]: sig }));
+      }
+
+      // Skip if already loaded (and signature matched)
+      if (prevSig === sig && teamResources[team.id]) continue;
+
       Promise.all([
         api.get<APIResponse<Workflow[]>>(`/teams/${team.id}/workflows`),
         api.get<APIResponse<NodeDefResponse[]>>(`/teams/${team.id}/nodes`),
@@ -305,7 +328,7 @@ export default function TeamTreeView({ teams, onEditTeam, onDeleteTeam }: TeamTr
           setTeamResources((prev) => ({ ...prev, [team.id]: { workflows: [], nodes: [] } }));
         });
     }
-  }, [teams, teamResources]);
+  }, [teams, teamResources, teamSignatures]);
 
   const toggleCollapse = useCallback((teamId: string) => {
     setCollapsed((prev) => {

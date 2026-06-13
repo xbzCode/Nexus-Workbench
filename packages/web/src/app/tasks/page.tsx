@@ -20,16 +20,16 @@ type FilterKey = "all" | "running" | "pending" | "completed" | "failed";
 type SortOrder = "newest" | "oldest";
 
 const FILTER_TABS: { key: FilterKey; label: string; icon: React.ElementType }[] = [
-  { key: "all", label: "All", icon: Zap },
-  { key: "running", label: "Running", icon: Loader },
-  { key: "pending", label: "Pending", icon: Clock },
-  { key: "completed", label: "Completed", icon: CheckCircle2 },
-  { key: "failed", label: "Failed", icon: XCircle },
+  { key: "all", label: "全部", icon: Zap },
+  { key: "running", label: "运行中", icon: Loader },
+  { key: "pending", label: "待启动", icon: Clock },
+  { key: "completed", label: "已完成", icon: CheckCircle2 },
+  { key: "failed", label: "失败", icon: XCircle },
 ];
 
 const MODE_CONFIG: Record<string, { label: string; icon: React.ElementType; tagClass: string; accentColor: string }> = {
-  workflow: { label: "Workflow", icon: Workflow, tagClass: "bg-emerald-500/10 text-emerald-400 border-emerald-400/30", accentColor: "var(--color-emerald-400, #34d399)" },
-  dynamic_assembly: { label: "Dynamic", icon: Sparkles, tagClass: "bg-violet/10 text-violet border-violet/30", accentColor: "var(--color-violet, #7c3aed)" },
+  workflow: { label: "工作流", icon: Workflow, tagClass: "bg-emerald-500/10 text-emerald-400 border-emerald-400/30", accentColor: "var(--color-emerald-400, #34d399)" },
+  dynamic_assembly: { label: "动态组装", icon: Sparkles, tagClass: "bg-violet/10 text-violet border-violet/30", accentColor: "var(--color-violet, #7c3aed)" },
   bare_agent: { label: "Agent", icon: Cpu, tagClass: "bg-amber/10 text-amber border-amber/30", accentColor: "var(--color-amber, #d97706)" },
 };
 const DEFAULT_MODE = { label: "", icon: Cpu, tagClass: "bg-muted text-muted-foreground border-border", accentColor: "var(--color-muted-foreground)" };
@@ -39,12 +39,12 @@ const DEFAULT_MODE = { label: "", icon: Cpu, tagClass: "bg-muted text-muted-fore
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes}分钟前`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return `${hours}小时前`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return `${days}天前`;
   return new Date(dateStr).toLocaleDateString("zh-CN");
 }
 
@@ -145,7 +145,7 @@ function getPipeline(task: Task): PipelineNode[] {
       rawLabel = cleanLabel(node.definition_id);
     }
     if (!rawLabel || isUuidLike(rawLabel)) {
-      rawLabel = "Unnamed Step";
+      rawLabel = "未命名步骤";
     }
     return {
       id,
@@ -255,7 +255,7 @@ function AgentIndicator({ task }: { task: Task }) {
     <div className="flex items-start gap-1.5 rounded-md bg-surface/60 px-2 py-1.5">
       <Bot className="h-3.5 w-3.5 text-amber shrink-0 mt-px" />
       <span className="text-[11px] text-muted-foreground line-clamp-2 leading-snug">
-        {inputSummary || "Agent executing..."}
+        {inputSummary || "Agent 执行中..."}
       </span>
     </div>
   );
@@ -327,11 +327,11 @@ export default function TasksPage() {
       <div className="shrink-0 border-b border-border bg-background/80 backdrop-blur-sm px-5 py-3">
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold text-foreground tracking-tight">Tasks</h1>
-            <span className="text-[12px] text-muted-foreground/60">{tasks.length} total</span>
+            <h1 className="text-lg font-semibold text-foreground tracking-tight">任务</h1>
+            <span className="text-[12px] text-muted-foreground/60">{tasks.length} 个</span>
           </div>
           <Button size="sm" onClick={() => router.push("/")} className="shadow-sm gap-1.5">
-            <Plus className="h-3.5 w-3.5" />New Task
+            <Plus className="h-3.5 w-3.5" />新建任务
           </Button>
         </div>
 
@@ -342,7 +342,7 @@ export default function TasksPage() {
             <Input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search tasks..."
+              placeholder="搜索任务..."
               className="pl-8 h-7 text-[13px] bg-surface border-border/60 focus:border-brand/40"
             />
           </div>
@@ -381,10 +381,10 @@ export default function TasksPage() {
           <button
             onClick={() => setSortOrder(prev => prev === "newest" ? "oldest" : "newest")}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-surface transition-colors"
-            title={sortOrder === "newest" ? "Newest first" : "Oldest first"}
+            title={sortOrder === "newest" ? "最新优先" : "最早优先"}
           >
             <ArrowUpDown className="h-3 w-3" />
-            {sortOrder === "newest" ? "Newest" : "Oldest"}
+            {sortOrder === "newest" ? "最新" : "最早"}
           </button>
         </div>
       </div>
@@ -398,10 +398,10 @@ export default function TasksPage() {
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface border border-border/60">
               <Zap className="h-7 w-7 text-brand/40" />
             </div>
-            <p className="mb-1 text-sm font-medium">No tasks yet</p>
-            <p className="mb-4 text-[13px] text-muted-foreground/60">Describe what you need, we&apos;ll handle the rest</p>
+            <p className="mb-1 text-sm font-medium">暂无任务</p>
+            <p className="mb-4 text-[13px] text-muted-foreground/60">描述你的需求，我来处理</p>
             <Button size="sm" onClick={() => router.push("/")} className="gap-1.5">
-              <Plus className="h-3.5 w-3.5" />Create Task
+              <Plus className="h-3.5 w-3.5" />创建任务
             </Button>
           </div>
         )}
@@ -409,7 +409,7 @@ export default function TasksPage() {
         {!loading && tasks.length > 0 && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <AlertCircle className="mb-2 h-7 w-7 opacity-40" />
-            <p className="text-[13px]">No {FILTER_TABS.find(t => t.key === activeFilter)?.label.toLowerCase()} tasks</p>
+            <p className="text-[13px]">无{FILTER_TABS.find(t => t.key === activeFilter)?.label}任务</p>
           </div>
         )}
 
@@ -468,12 +468,12 @@ export default function TasksPage() {
                                   {task.execution_mode === "workflow" ? (
                                     <>
                                       <Workflow className="h-3 w-3 shrink-0 text-emerald-400/80" />
-                                      <span className="line-clamp-1 text-emerald-400/80">{task.workflow_name || "Workflow"}</span>
+                                      <span className="line-clamp-1 text-emerald-400/80">{task.workflow_name || "工作流"}</span>
                                     </>
                                   ) : (
                                     <>
                                       <Sparkles className="h-3 w-3 shrink-0 text-violet/80" />
-                                      <span className="line-clamp-1 text-violet/80">Dynamic Assembly</span>
+                                      <span className="line-clamp-1 text-violet/80">动态组装</span>
                                     </>
                                   )}
                                 </div>
@@ -483,7 +483,7 @@ export default function TasksPage() {
                                   <div className="flex items-center gap-1.5 rounded-md bg-emerald-500/5 px-2 py-1.5 border border-emerald-500/10">
                                     <Workflow className="h-3.5 w-3.5 text-emerald-400/60 shrink-0" />
                                     <span className="text-[11px] text-muted-foreground/60 line-clamp-1">
-                                      Workflow pending
+                                      工作流待执行
                                     </span>
                                   </div>
                                 )}
@@ -503,7 +503,7 @@ export default function TasksPage() {
                             <Clock className="h-3 w-3" />{formatRelativeTime(task.created_at)}
                           </span>
                           <span className="flex items-center gap-0.5 text-[11px] opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-brand font-medium">
-                            View<ArrowRight className="h-3 w-3" />
+                            查看<ArrowRight className="h-3 w-3" />
                           </span>
                         </div>
                       </div>

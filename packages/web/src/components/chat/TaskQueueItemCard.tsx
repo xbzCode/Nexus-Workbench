@@ -43,8 +43,7 @@ export default function TaskQueueItemCard({
   const Icon = cfg.icon;
   const isSpinning = task.status === "matching" || task.status === "confirming" || task.status === "executing";
 
-  // 截断用户输入用于展示
-  const displayQuery = task.userQuery.length > 24 ? task.userQuery.slice(0, 24) + "..." : task.userQuery;
+  // 主内容 - 使用 CSS truncate 自动处理溢出，不再硬编码截断
 
   // 格式化时间
   const timeStr = new Date(task.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
@@ -70,7 +69,7 @@ export default function TaskQueueItemCard({
       {/* 主内容 */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-medium text-foreground truncate">{displayQuery}</span>
+          <span className="text-[13px] font-medium text-foreground truncate">{task.userQuery}</span>
         </div>
         <div className="flex items-center gap-2 mt-0.5">
           <span className={cn("flex items-center gap-1 text-[11px] font-medium", cfg.textClass)}>

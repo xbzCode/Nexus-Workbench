@@ -1,11 +1,12 @@
-/** DAG 自定义节点 — 显示名 + 类型图标 + 状态着色 */
+/** DAG 自定义节点 — memo 优化 + 删除/配置操作按钮 */
 
 "use client";
 
+import { memo } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Settings2 } from "lucide-react";
+import { Settings2, X } from "lucide-react";
 
 export interface DagNodeData {
   label: string;
@@ -16,6 +17,8 @@ export interface DagNodeData {
   status?: string;
   config?: Record<string, unknown>;
   onConfigClick?: (nodeId: string) => void;
+  onDeleteClick?: (nodeId: string) => void;
+  selected?: boolean;
   [key: string]: unknown;
 }
 
@@ -30,29 +33,38 @@ const NODE_STATUS_STYLES: Record<string, string> = {
 interface DagNodeProps {
   id: string;
   data: DagNodeData;
+  selected?: boolean;
 }
 
-export function DagNodeComponent({ id, data }: DagNodeProps) {
+export const DagNodeComponent = memo(function DagNodeComponent({ id, data, selected }: DagNodeProps) {
   const statusStyle = data.status
     ? NODE_STATUS_STYLES[data.status] ?? "border-border bg-card"
     : "border-border bg-card";
   const accentColor = data.accentColor ?? "var(--color-muted-foreground)";
   const icon = data.icon ?? "⚙️";
+  const isEditable = !!(data.onConfigClick || data.onDeleteClick);
 
   return (
     <div
       className={cn(
-        "min-w-[160px] rounded-xl border-2 px-3 py-2.5 shadow-sm transition-all group hover:shadow-md",
-        statusStyle
+        "min-w-[160px] rounded-xl border-2 px-3 py-2.5 shadow-sm group relative",
+        statusStyle,
+        selected && !data.status && "border-brand/50 shadow-md shadow-brand/10",
+        isEditable && "hover:shadow-md"
       )}
       style={{
-        borderColor: data.status ? undefined : accentColor + "40",
+        borderColor: data.status
+          ? undefined
+          : selected
+            ? undefined
+            : accentColor + "40",
+        transition: "box-shadow 0.15s ease, border-color 0.15s ease",
       }}
     >
       <Handle
         type="target"
         position={Position.Left}
-        className="!h-2 !w-2 !border-0" 
+        className="!h-2 !w-2 !border-0"
         style={{ backgroundColor: accentColor + "60" }}
       />
 
@@ -85,18 +97,34 @@ export function DagNodeComponent({ id, data }: DagNodeProps) {
           </p>
         </div>
 
-        {/* 配置按钮 */}
-        {data.onConfigClick && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              data.onConfigClick?.(id);
-            }}
-            className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 flex items-center justify-center rounded hover:bg-foreground/10 shrink-0"
-            title="节点配置"
-          >
-            <Settings2 className="h-3 w-3 text-muted-foreground" />
-          </button>
+        {/* 操作按钮区域 — 编辑模式下 hover 显示 */}
+        {isEditable && (
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            {data.onConfigClick && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onConfigClick?.(id);
+                }}
+                className="h-6 w-6 flex items-center justify-center rounded hover:bg-foreground/10"
+                title="节点配置"
+              >
+                <Settings2 className="h-3 w-3 text-muted-foreground" />
+              </button>
+            )}
+            {data.onDeleteClick && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onDeleteClick?.(id);
+                }}
+                className="h-6 w-6 flex items-center justify-center rounded hover:bg-destructive/10"
+                title="删除节点"
+              >
+                <X className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -108,4 +136,4 @@ export function DagNodeComponent({ id, data }: DagNodeProps) {
       />
     </div>
   );
-}
+});

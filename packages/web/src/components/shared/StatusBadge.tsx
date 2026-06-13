@@ -12,9 +12,8 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
   skipped:    { label: "已跳过", variant: "secondary", className: "" },
   approved:   { label: "已通过", variant: "outline", className: "border-emerald-400/40 bg-emerald-500/10 text-emerald-500" },
   rejected:   { label: "已拒绝", variant: "destructive", className: "" },
-  draft:      { label: "草稿",   variant: "secondary", className: "" },
-  published:  { label: "已发布", variant: "default", className: "" },
-  archived:   { label: "已归档", variant: "secondary", className: "" },
+  draft:      { label: "未发布", variant: "outline", className: "border-muted-foreground/30 bg-muted text-muted-foreground" },
+  published:  { label: "已发布", variant: "default", className: "border-emerald-400/40 bg-emerald-500/10 text-emerald-600" },
 };
 
 interface StatusBadgeProps {

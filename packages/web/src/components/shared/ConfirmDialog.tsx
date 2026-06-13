@@ -67,9 +67,11 @@ export default function ConfirmDialog({
         <p className="mb-5 text-sm text-muted-foreground leading-relaxed">{message}</p>
 
         <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onCancel} disabled={loading}>
-            {cancelLabel}
-          </Button>
+          {cancelLabel !== undefined && (
+            <Button variant="outline" size="sm" onClick={onCancel} disabled={loading}>
+              {cancelLabel}
+            </Button>
+          )}
           <Button size="sm" onClick={onConfirm} disabled={loading} className={config.btnClass}>
             {loading && <span className="mr-1.5 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />}
             {confirmLabel}

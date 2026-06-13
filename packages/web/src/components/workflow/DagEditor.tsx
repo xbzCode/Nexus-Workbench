@@ -1,11 +1,12 @@
-/** DAG 编辑器 — React Flow 可编辑 + 只读双模式
+/** DAG 编辑器 — React Flow 受控模式 + 性能优化
  *
- * 功能：
- * - 拖拽/点击添加节点（左侧常驻面板）
- * - 自动布局 (dagre)
- * - 撤销/重做 (Ctrl+Z / Ctrl+Shift+Z)
- * - 节点展示 display_name + 类型图标
- * - 智能空状态
+ * 核心改进：
+ * - 使用 React Flow 受控模式 (applyNodeChanges/applyEdgeChanges)
+ * - 拖拽中只更新 RF 内部状态，dragEnd 才同步回 dag prop
+ * - memo 包裹节点/边组件，避免不必要的重渲染
+ * - Delete 键快捷删除 + 节点上删除按钮
+ * - 左侧面板可折叠
+ * - 去掉不必要的 MiniMap / animated
  */
 
 "use client";
@@ -15,7 +16,8 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
+  applyNodeChanges,
+  applyEdgeChanges,
   type Node,
   type Edge,
   type NodeTypes,
@@ -39,6 +41,7 @@ import { NodeConfigPanel } from "@/components/workflow/NodeConfigPanel";
 import { Button } from "@/components/ui/button";
 import {
   Trash2, Loader2, Search, Package, LayoutGrid, Undo2, Redo2,
+  PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import dagre from "@dagrejs/dagre";
 
@@ -80,6 +83,49 @@ function getNodeVisual(name: string): NodeVisual {
   return NODE_VISUAL_MAP[name] ?? { icon: "⚙️", color: "#94a3b8" };
 }
 
+// ── DAG → React Flow Nodes 转换 ──
+function dagToRfNodes(
+  dag: DAGDefinition,
+  defMap: Map<string, NodeDefResponse>,
+  editable: boolean,
+  onConfigClick: (nodeId: string) => void,
+  onDeleteClick: (nodeId: string) => void,
+  nodeStatuses?: Record<string, string>,
+): Node[] {
+  if (!dag.nodes) return [];
+  return dag.nodes.map((n) => {
+    const def = defMap.get(n.definition_id);
+    const visual = def ? getNodeVisual(def.name) : getNodeVisual("");
+    return {
+      id: n.id,
+      type: "dagNode",
+      position: n.position ?? { x: 0, y: 0 },
+      data: {
+        label: n.id,
+        definition_id: n.definition_id,
+        displayName: def?.display_name ?? def?.name ?? n.id,
+        icon: visual.icon,
+        accentColor: visual.color,
+        status: nodeStatuses?.[n.id],
+        config: n.config,
+        onConfigClick: editable ? onConfigClick : undefined,
+        onDeleteClick: editable ? onDeleteClick : undefined,
+      } satisfies DagNodeData,
+    };
+  });
+}
+
+function dagToRfEdges(dag: DAGDefinition): Edge[] {
+  if (!dag.edges) return [];
+  return dag.edges.map((e, i) => ({
+    id: `e-${i}`,
+    type: "dagEdge",
+    source: e.source_id,
+    target: e.target_id,
+    data: { condition: e.condition },
+  }));
+}
+
 // ── DAG Editor ──
 
 interface DagEditorProps {
@@ -101,11 +147,22 @@ export default function DagEditor({
   const [nodeDefs, setNodeDefs] = useState<NodeDefResponse[]>([]);
   const [search, setSearch] = useState("");
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
-  const [draggedNodePositions, setDraggedNodePositions] = useState<Record<string, { x: number; y: number }>>({});
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+
+  // React Flow 受控节点/边状态
+  const [rfNodes, setRfNodes] = useState<Node[]>([]);
+  const [rfEdges, setRfEdges] = useState<Edge[]>([]);
+
+  // 拖拽中的位置暂存（仅 dragEnd 时同步回 dag）
+  const pendingPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
 
   // 撤销/重做历史
   const historyRef = useRef<DAGDefinition[]>([{ nodes: [], edges: [] }]);
   const historyIdxRef = useRef(0);
+
+  // 稳定引用：删除节点函数（避免 useEffect 闭包问题）
+  const onDeleteNodeRef = useRef<(nodeId: string) => void>(() => {});
+
 
   // 节点定义 ID → 详情映射
   const defMap = useMemo(() => {
@@ -141,45 +198,16 @@ export default function DagEditor({
       .catch(() => {});
   }, [editable]);
 
-  // 从 DAG 初始化 nodes（合并拖拽位置覆盖）
-  const initialNodes: Node[] = useMemo(() => {
-    if (!dag?.nodes) return [];
-    return dag.nodes.map((n) => {
-      const def = defMap.get(n.definition_id);
-      const visual = def ? getNodeVisual(def.name) : getNodeVisual("");
-      const pos = draggedNodePositions[n.id] ?? n.position ?? { x: 0, y: 0 };
-      return {
-        id: n.id,
-        type: "dagNode",
-        position: pos,
-        data: {
-          label: n.id,
-          definition_id: n.definition_id,
-          displayName: def?.display_name ?? def?.name ?? n.id,
-          icon: visual.icon,
-          accentColor: visual.color,
-          status: nodeStatuses?.[n.id],
-          config: n.config,
-          onConfigClick: editable
-            ? (nodeId: string) => setSelectedNodeId(nodeId)
-            : undefined,
-        } satisfies DagNodeData,
-      };
-    });
-  }, [dag, nodeStatuses, editable, defMap, draggedNodePositions]);
+  // dag prop 变化时同步到 RF 状态
+  useEffect(() => {
+    const effectiveDag = dag ?? { nodes: [], edges: [] };
+    const onConfig = (nodeId: string) => setSelectedNodeId(nodeId);
+    const onDelete = (nodeId: string) => onDeleteNodeRef.current(nodeId);
+    setRfNodes(dagToRfNodes(effectiveDag, defMap, editable, onConfig, onDelete, nodeStatuses));
+    setRfEdges(dagToRfEdges(effectiveDag));
+  }, [dag, nodeStatuses, editable, defMap]);
 
-  const edges: Edge[] = useMemo(() => {
-    if (!dag?.edges) return [];
-    return dag.edges.map((e, i) => ({
-      id: `e-${i}`,
-      type: "dagEdge",
-      source: e.source_id,
-      target: e.target_id,
-      data: { condition: e.condition },
-      animated: true,
-    }));
-  }, [dag]);
-
+  // 当前选中的 DAG 节点
   const selectedNode = useMemo(() => {
     if (!selectedNodeId || !dag?.nodes) return null;
     return dag.nodes.find((n) => n.id === selectedNodeId) ?? null;
@@ -221,21 +249,46 @@ export default function DagEditor({
     onChange(historyRef.current[historyIdxRef.current]);
   }, [onChange, canRedo]);
 
-  // 键盘快捷键
+  // ── 删除节点（可被按钮和键盘共用）──
+  const handleDeleteNodeById = useCallback(
+    (nodeId: string) => {
+      if (!editable || !onChange || !dag) return;
+      safeOnChange({
+        nodes: dag.nodes.filter((n) => n.id !== nodeId),
+        edges: dag.edges.filter((e) => e.source_id !== nodeId && e.target_id !== nodeId),
+      });
+      setSelectedNodeId((prev) => (prev === nodeId ? null : prev));
+    },
+    [editable, onChange, dag, safeOnChange]
+  );
+
+  // 保持 ref 同步
+  onDeleteNodeRef.current = handleDeleteNodeById;
+
+  // ── 键盘快捷键 ──
   useEffect(() => {
     if (!editable) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      // 撤销/重做
       if ((e.ctrlKey || e.metaKey) && e.key === "z") {
         e.preventDefault();
         if (e.shiftKey) handleRedo();
         else handleUndo();
+        return;
+      }
+      // Delete/Backspace 删除选中节点（不在 input/textarea 中时）
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedNodeId) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        e.preventDefault();
+        handleDeleteNodeById(selectedNodeId);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editable, handleUndo, handleRedo]);
+  }, [editable, handleUndo, handleRedo, selectedNodeId, handleDeleteNodeById]);
 
-  // ── React Flow 事件 ──
+  // ── React Flow 事件（受控模式）──
 
   const onInit = useCallback((instance: ReactFlowInstance) => {
     setReactFlowInstance(instance);
@@ -244,34 +297,39 @@ export default function DagEditor({
 
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => {
-      if (!editable || !onChange || !dag) return;
-      // 处理所有位置变更（包括拖拽中的实时更新）
+      // 应用 changes 到 RF 内部状态（保证选中、尺寸、拖拽位置等正确更新）
+      setRfNodes((nds) => applyNodeChanges(changes, nds));
+
+      // 处理拖拽位置暂存
       const positionChanges = changes.filter(
         (c) => c.type === "position" && c.position
       );
       if (positionChanges.length > 0) {
-        const newPositions = { ...draggedNodePositions };
         for (const c of positionChanges) {
-          if (c.id && c.position) newPositions[c.id] = c.position;
+          if (c.id && c.position) {
+            pendingPositionsRef.current[c.id] = c.position;
+          }
         }
-        setDraggedNodePositions(newPositions);
 
-        // 只在拖拽结束时才同步到 dag
+        // 拖拽结束时同步回 dag
         const hasDragEnd = positionChanges.some((c) => c.dragging === false);
-        if (hasDragEnd) {
+        if (hasDragEnd && editable && onChange && dag) {
           const newNodes: NodeInstance[] = dag.nodes.map((n) => ({
             ...n,
-            position: newPositions[n.id] ?? n.position,
+            position: pendingPositionsRef.current[n.id] ?? n.position,
           }));
           safeOnChange({ nodes: newNodes, edges: dag.edges });
+          pendingPositionsRef.current = {};
         }
       }
     },
-    [editable, onChange, dag, draggedNodePositions, safeOnChange]
+    [editable, onChange, dag, safeOnChange]
   );
 
   const onEdgesChange: OnEdgesChange = useCallback(
     (changes) => {
+      setRfEdges((eds) => applyEdgeChanges(changes, eds));
+
       if (!editable || !onChange || !dag) return;
       const removedIds = new Set(
         changes.filter((c) => c.type === "remove").map((c) => c.id)
@@ -293,6 +351,13 @@ export default function DagEditor({
       });
     },
     [editable, onChange, dag, safeOnChange]
+  );
+
+  const onNodeDragStop: NodeMouseHandler = useCallback(
+    (_event, node) => {
+      // 位置已在 onNodesChange 中同步，这里无需重复处理
+    },
+    []
   );
 
   const handleNodeConfigSave = useCallback(
@@ -351,21 +416,10 @@ export default function DagEditor({
     [reactFlowInstance, defMap, handleAddNode]
   );
 
-  // ── 删除节点 ──
-  const handleDeleteNode = useCallback(() => {
-    if (!editable || !onChange || !dag || !selectedNodeId) return;
-    safeOnChange({
-      nodes: dag.nodes.filter((n) => n.id !== selectedNodeId),
-      edges: dag.edges.filter((e) => e.source_id !== selectedNodeId && e.target_id !== selectedNodeId),
-    });
-    setSelectedNodeId(null);
-  }, [editable, onChange, dag, selectedNodeId, safeOnChange]);
-
   // ── 自动布局 ──
   const handleAutoLayout = useCallback(() => {
     if (!editable || !onChange || !dag) return;
     safeOnChange(layoutDag(dag));
-    setDraggedNodePositions({});
   }, [editable, onChange, dag, safeOnChange]);
 
   const onPaneClick = useCallback(() => setSelectedNodeId(null), []);
@@ -388,128 +442,148 @@ export default function DagEditor({
   if (editable) {
     return (
       <div className={cn("flex h-full w-full", className)}>
-        {/* 左侧固定节点面板 */}
-        <div className="flex w-64 shrink-0 flex-col border-r border-border bg-card">
-          {/* 面板标题 */}
-          <div className="px-3 py-2.5 border-b border-border">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">节点</h3>
-          </div>
+        {/* 左侧节点面板 — 可折叠 */}
+        {!panelCollapsed && (
+          <div className="flex w-64 shrink-0 flex-col border-r border-border bg-card">
+            {/* 面板标题 + 折叠按钮 */}
+            <div className="px-3 py-2.5 border-b border-border flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">节点</h3>
+              <button
+                onClick={() => setPanelCollapsed(true)}
+                className="h-5 w-5 flex items-center justify-center rounded hover:bg-surface-hover text-muted-foreground"
+                title="收起面板"
+              >
+                <PanelLeftClose className="h-3.5 w-3.5" />
+              </button>
+            </div>
 
-          {/* 搜索 */}
-          <div className="px-3 py-2 border-b border-border">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="搜索节点…"
-                className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-brand focus:outline-none"
-              />
+            {/* 搜索 */}
+            <div className="px-3 py-2 border-b border-border">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="搜索节点…"
+                  className="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-brand focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* 可用节点列表 */}
+            <div className="flex-1 overflow-y-auto">
+              {nodeDefs.length === 0 ? (
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载中…
+                </div>
+              ) : filteredNodeDefs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <Package className="mb-2 h-6 w-6 opacity-30" />
+                  <p className="text-xs">{existingNodeIds.size > 0 ? "所有节点已添加" : "暂无可用节点"}</p>
+                </div>
+              ) : (
+                filteredNodeDefs.map((def) => {
+                  const visual = getNodeVisual(def.name);
+                  return (
+                    <button
+                      key={def.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/plain", def.id);
+                        e.dataTransfer.effectAllowed = "copy";
+                      }}
+                      onClick={() => handleAddNode(def)}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-surface-hover border-b border-border/50 last:border-0"
+                    >
+                      <div
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm"
+                        style={{ backgroundColor: visual.color + "15" }}
+                      >
+                        <span>{visual.icon}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium text-foreground truncate">
+                          {def.display_name || def.name}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground truncate">
+                          {def.description || def.name}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            {/* 工具栏 */}
+            <div className="border-t border-border px-2 py-1.5 flex items-center gap-0.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={handleAutoLayout}
+                disabled={!hasNodes}
+                title="自动排列"
+              >
+                <LayoutGrid className="h-3.5 w-3.5 mr-1" />
+                排列
+              </Button>
+              <div className="w-px h-4 bg-border" />
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2"
+                onClick={handleUndo}
+                disabled={!canUndo}
+                title="撤销 (Ctrl+Z)"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2"
+                onClick={handleRedo}
+                disabled={!canRedo}
+                title="重做 (Ctrl+Shift+Z)"
+              >
+                <Redo2 className="h-3.5 w-3.5" />
+              </Button>
+              {selectedNodeId && (
+                <>
+                  <div className="w-px h-4 bg-border" />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => handleDeleteNodeById(selectedNodeId)}
+                    title="删除选中节点 (Delete)"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              )}
             </div>
           </div>
-
-          {/* 可用节点列表 */}
-          <div className="flex-1 overflow-y-auto">
-            {nodeDefs.length === 0 ? (
-              <div className="flex items-center justify-center py-8 text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载中…
-              </div>
-            ) : filteredNodeDefs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                <Package className="mb-2 h-6 w-6 opacity-30" />
-                <p className="text-xs">{existingNodeIds.size > 0 ? "所有节点已添加" : "暂无可用节点"}</p>
-              </div>
-            ) : (
-              filteredNodeDefs.map((def) => {
-                const visual = getNodeVisual(def.name);
-                return (
-                  <button
-                    key={def.id}
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("text/plain", def.id);
-                      e.dataTransfer.effectAllowed = "copy";
-                    }}
-                    onClick={() => handleAddNode(def)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-surface-hover border-b border-border/50 last:border-0"
-                  >
-                    <div
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm"
-                      style={{ backgroundColor: visual.color + "15" }}
-                    >
-                      <span>{visual.icon}</span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-medium text-foreground truncate">
-                        {def.display_name || def.name}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground truncate">
-                        {def.description || def.name}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-
-          {/* 工具栏 */}
-          <div className="border-t border-border px-2 py-1.5 flex items-center gap-0.5">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs"
-              onClick={handleAutoLayout}
-              disabled={!hasNodes}
-              title="自动排列"
-            >
-              <LayoutGrid className="h-3.5 w-3.5 mr-1" />
-              排列
-            </Button>
-            <div className="w-px h-4 bg-border" />
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2"
-              onClick={handleUndo}
-              disabled={!canUndo}
-              title="撤销 (Ctrl+Z)"
-            >
-              <Undo2 className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2"
-              onClick={handleRedo}
-              disabled={!canRedo}
-              title="重做 (Ctrl+Shift+Z)"
-            >
-              <Redo2 className="h-3.5 w-3.5" />
-            </Button>
-            {selectedNodeId && (
-              <>
-                <div className="w-px h-4 bg-border" />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
-                  onClick={handleDeleteNode}
-                  title="删除选中节点"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
+        )}
 
         {/* 右侧画布区域 */}
         <div className="flex-1 relative">
+          {/* 面板折叠时的展开按钮 */}
+          {panelCollapsed && (
+            <button
+              onClick={() => setPanelCollapsed(false)}
+              className="absolute top-3 left-3 z-10 h-7 w-7 flex items-center justify-center rounded-md border border-border bg-card shadow-sm hover:bg-surface-hover text-muted-foreground"
+              title="展开节点面板"
+            >
+              <PanelLeftOpen className="h-3.5 w-3.5" />
+            </button>
+          )}
+
           {hasNodes ? (
             <ReactFlow
-              nodes={initialNodes}
-              edges={edges}
+              nodes={rfNodes}
+              edges={rfEdges}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
               onInit={onInit}
@@ -522,18 +596,14 @@ export default function DagEditor({
               onConnect={onConnect}
               onPaneClick={onPaneClick}
               onNodeClick={onNodeClick}
+              onNodeDragStop={onNodeDragStop}
               onDragOver={onDragOver}
               onDrop={onDrop}
               proOptions={{ hideAttribution: true }}
+              deleteKeyCode={null}
             >
               <Background color="var(--color-border)" gap={20} size={1} />
               <Controls className="!rounded-xl !border-border !bg-card !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground [&>button:hover]:!bg-surface-hover" />
-              <MiniMap
-                className="!rounded-xl !border-border !bg-card"
-                nodeColor="var(--color-brand)"
-                maskColor="var(--color-foreground)"
-                style={{ opacity: 0.7 }}
-              />
             </ReactFlow>
           ) : (
             /* 空画布提示 */
@@ -569,8 +639,8 @@ export default function DagEditor({
   return (
     <div className={cn("flex h-full w-full", className)}>
       <ReactFlow
-        nodes={initialNodes}
-        edges={edges}
+        nodes={rfNodes}
+        edges={rfEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onInit={onInit}

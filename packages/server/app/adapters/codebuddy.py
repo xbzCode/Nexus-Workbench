@@ -32,15 +32,14 @@ from app.adapters.base import AgentHarnessAdapter
 from app.adapters.events import (
     AdapterEvent, AgentThinkingEvent,
     ToolUseEvent, ProgressUpdateEvent, ExecutionCompletedEvent,
+    AgentOutputTextEvent,
 )
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-# 任务执行调试日志
-def _tlog() -> logging.Logger:
-    from app.config.logging import get_task_logger
-    return get_task_logger()
+# 统一任务日志入口
+from app.config.logging import tlog as _get_tlog
 
 
 def _render_template(template: str, input_data: dict, workspace: str) -> str:
@@ -133,7 +132,7 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
 
     def _launch_process(self, cmd: list[str], workspace: str, env: dict | None = None) -> subprocess.Popen:
         """启动子进程（同步，在线程中调用）"""
-        logger.info(f"[Adapter] Launching: {' '.join(cmd[:3])}... cwd={workspace}")
+        logger.info("[Adapter] Launching: %s... cwd=%s", ' '.join(cmd[:3]), workspace)
         proc = subprocess.Popen(
             cmd,
             cwd=workspace,
@@ -148,10 +147,34 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
         return proc
 
     def _build_cmd(self, prompt: str, config: dict) -> list[str]:
-        """构建命令列表"""
+        """构建命令列表
+
+        注意：Windows .cmd 脚本无法正确处理含换行符的参数，
+        会导致后续参数（--output-format、-y）被截断丢失，
+        因此必须将换行替换为空格。
+        """
         cbc_path = self._ensure_available()
+        # Windows .cmd 参数解析限制：换行符会截断后续参数
+        safe_prompt = prompt.replace("\n", " ").replace("\r", " ")
         cmd = [
-            cbc_path, "-p", prompt,
+            cbc_path, "-p", safe_prompt,
+            "--output-format", "stream-json",
+            "-y",
+        ]
+        if config.get("allowed_tools"):
+            cmd.extend(["--allowedTools", config["allowed_tools"]])
+        if config.get("disallowed_tools"):
+            cmd.extend(["--disallowedTools", config["disallowed_tools"]])
+        return cmd
+
+    def _build_resume_cmd(self, cb_session_id: str, prompt: str, config: dict) -> list[str]:
+        """构建 resume 命令列表（复用已有 CLI 会话）"""
+        cbc_path = self._ensure_available()
+        safe_prompt = prompt.replace("\n", " ").replace("\r", " ")
+        # --resume 必须紧跟在 cbc_path 后面，-p 在 --resume 之后
+        cmd = [
+            cbc_path, "--resume", cb_session_id,
+            "-p", safe_prompt,
             "--output-format", "stream-json",
             "-y",
         ]
@@ -162,15 +185,22 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
         return cmd
 
     async def start_session(self, config: dict) -> str:
-        """启动 CodeBuddy 会话"""
+        """启动 CodeBuddy 会话
+
+        支持两种模式：
+        1. 新建会话：无 resume_from，启动全新 CLI 进程
+        2. 继承会话：有 resume_from（codebuddy_session_id），用 --resume 复用已有 CLI 会话
+        """
         session_id = str(uuid.uuid4())
         workspace = config.get("workspace", os.path.join(settings.WORKSPACE_DIR, session_id))
         os.makedirs(workspace, exist_ok=True)
 
+        # 判断是否继承已有会话
+        resume_from = config.get("resume_from")  # 上游节点的 codebuddy_session_id
+
         # 1. 如果节点有 agent/skill/plugin 文件，复制到 workspace/.codebuddy/ 目录
         node_files = config.get("node_files", [])
         if node_files:
-            # node_files 统一写入 .codebuddy/ 目录（MVP 版本已验证可行）
             codebuddy_dir = os.path.join(workspace, ".codebuddy")
             for f in node_files:
                 dest = os.path.join(codebuddy_dir, f["path"])
@@ -183,8 +213,21 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
         input_data = config.get("input_data", {})
         prompt = _render_template(prompt_template, input_data, workspace)
 
-        # 3. 构建命令
-        cmd = self._build_cmd(prompt, config)
+        # ── 调试日志：记录 Adapter 输入 ──
+        _get_tlog().info("ADAPTER INPUT | session_id=%s | workspace=%s | resume_from=%s",
+                     session_id[:8], workspace, (resume_from or "NONE")[:8] if resume_from else "NONE")
+        _get_tlog().info("ADAPTER INPUT | prompt_template_len=%d | input_data_keys=%s",
+                     len(prompt_template), list(input_data.keys()) if isinstance(input_data, dict) else "N/A")
+        _get_tlog().debug("ADAPTER INPUT | prompt_template=%s", prompt_template[:500])
+        _get_tlog().info("ADAPTER INPUT | rendered_prompt_len=%d | preview=%s",
+                     len(prompt), prompt[:300])
+
+        # 3. 构建命令（resume 或 新建）
+        if resume_from:
+            cmd = self._build_resume_cmd(resume_from, prompt, config)
+            logger.info("[Adapter] start_session: RESUME from cb_sid=%s", resume_from[:8])
+        else:
+            cmd = self._build_cmd(prompt, config)
 
         # 4. 构建环境变量（继承当前进程 + 注入 SKILL_DIR）
         env = copy.copy(os.environ)
@@ -201,14 +244,25 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
 
         # 7. 启动后台线程读取 stdout
         def _read_stdout(proc: subprocess.Popen, q: asyncio.Queue):
+            line_count = 0
             try:
                 for line in proc.stdout:
                     line_str = line.strip() if isinstance(line, str) else line.decode("utf-8", errors="replace").strip()
                     if line_str:
+                        line_count += 1
                         q.put_nowait(line_str)
+                        if line_count <= 5:
+                            try:
+                                _data = json.loads(line_str)
+                                _type = _data.get("type", "?")
+                                _sub = _data.get("subtype", "")
+                                logger.debug("[Adapter] _read_stdout line#%d: type=%s subtype=%s", line_count, _type, _sub)
+                            except (json.JSONDecodeError, Exception):
+                                logger.debug("[Adapter] _read_stdout line#%d: non-json len=%d raw=%.100s", line_count, len(line_str), line_str)
             except Exception as e:
                 logger.error(f"[Adapter] stdout read error: {e}")
             finally:
+                logger.info("[Adapter] _read_stdout EOF: total_lines=%d", line_count)
                 q.put_nowait(None)
 
         reader_thread = threading.Thread(
@@ -222,7 +276,7 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
         self.sessions[session_id] = {
             "process": process,
             "workspace": workspace,
-            "codebuddy_session_id": None,
+            "codebuddy_session_id": resume_from,  # resume 模式下直接继承
             "config": config,
             "event_queue": event_queue,
             "reader_thread": reader_thread,
@@ -245,6 +299,9 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
         event_queue: asyncio.Queue[str | None] = session["event_queue"]
         process: subprocess.Popen = session["process"]
         stderr_lines: list[str] = []
+        logger.debug("[Adapter] on_event enter: session=%s, queue_size=%d, process_alive=%s, cb_sid=%s",
+                    session_id[:8], event_queue.qsize(), process.returncode is None,
+                    (session.get("codebuddy_session_id") or "NONE")[:8])
 
         # 后台读取 stderr
         def _read_stderr(proc: subprocess.Popen, lines: list[str]):
@@ -322,36 +379,60 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
     async def _parse_stream_json(self, data: dict, session: dict) -> AsyncIterator[AdapterEvent]:
         """解析单行 stream-json"""
         msg_type = data.get("type", "")
-        tlog = _tlog()
         cb_sid = (session.get("codebuddy_session_id") or "")[:8]
+
+        # 诊断：记录每条消息的 type
+        logger.debug("[Adapter] _parse_stream_json: type=%s subtype=%s cb_sid=%s",
+                    msg_type, data.get("subtype", ""), cb_sid)
 
         if msg_type == "system":
             subtype = data.get("subtype", "")
-            tlog.debug("STREAM-JSON | cb_sid=%s | type=system | subtype=%s", cb_sid, subtype)
+            _get_tlog().debug("STREAM-JSON | cb_sid=%s | type=system | subtype=%s", cb_sid, subtype)
 
             if subtype == "init":
                 cb_session = data.get("session_id")
                 if cb_session:
                     session["codebuddy_session_id"] = cb_session
-                    tlog.debug("STREAM-JSON | cb_sid=%s | init session_id=%s", cb_sid, cb_session)
+                    _get_tlog().info("STREAM-JSON | cb_sid=%s | init session_id=%s", cb_sid, cb_session)
 
             elif subtype == "result":
                 session["_completed"] = True
                 result_text = data.get("result", "")
-                tlog.info("STREAM-JSON | cb_sid=%s | RESULT | result_len=%d | cost_usd=%s",
+                _get_tlog().info("STREAM-JSON | cb_sid=%s | RESULT | result_len=%d | cost_usd=%s",
                           cb_sid, len(result_text), data.get("total_cost_usd"))
+                _get_tlog().debug("STREAM-JSON | cb_sid=%s | RESULT content=%s",
+                           cb_sid, result_text[:2000])
+                # 发出 AgentOutputTextEvent：携带完整文本供 Engine 做提问检测
+                if result_text:
+                    yield AgentOutputTextEvent(raw_text=result_text)
                 yield ExecutionCompletedEvent(output={
                     "result": result_text,
                     "session_id": data.get("session_id"),
                     "cost_usd": data.get("total_cost_usd"),
                 })
 
+        elif msg_type == "result":
+            # CLI v2+ 格式：{"type":"result","subtype":"success",...}
+            session["_completed"] = True
+            result_text = data.get("result", "")
+            _get_tlog().info("STREAM-JSON | cb_sid=%s | RESULT | result_len=%d | cost_usd=%s",
+                      cb_sid, len(result_text), data.get("total_cost_usd"))
+            _get_tlog().debug("STREAM-JSON | cb_sid=%s | RESULT content=%s",
+                       cb_sid, result_text[:2000])
+            if result_text:
+                yield AgentOutputTextEvent(raw_text=result_text)
+            yield ExecutionCompletedEvent(output={
+                "result": result_text,
+                "session_id": data.get("session_id"),
+                "cost_usd": data.get("total_cost_usd"),
+            })
+
         elif msg_type == "assistant":
             message = data.get("message", {})
             content_blocks = message.get("content", [])
 
             if isinstance(content_blocks, str):
-                tlog.debug("STREAM-JSON | cb_sid=%s | type=assistant | block_type=str | len=%d",
+                _get_tlog().debug("STREAM-JSON | cb_sid=%s | type=assistant | block_type=str | len=%d",
                            cb_sid, len(content_blocks))
                 yield ProgressUpdateEvent(content=content_blocks)
                 return
@@ -370,7 +451,7 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
                     block_summary.append(f"tool_use({block.get('name', '?')})")
                 else:
                     block_summary.append(bt)
-            tlog.debug("STREAM-JSON | cb_sid=%s | type=assistant | blocks=%s",
+            _get_tlog().debug("STREAM-JSON | cb_sid=%s | type=assistant | blocks=%s",
                        cb_sid, ", ".join(block_summary))
 
             for block in content_blocks:
@@ -381,6 +462,8 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
 
                 elif block_type == "text":
                     text = block.get("text", "")
+                    _get_tlog().debug("STREAM-JSON | cb_sid=%s | TEXT output | len=%d | preview=%s",
+                               cb_sid, len(text), text[:300])
                     yield ProgressUpdateEvent(content=text)
 
                 elif block_type == "tool_use":
@@ -484,10 +567,12 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
         """恢复会话（多轮对话）— 用 cbc --resume 重新启动进程"""
         session = self.sessions.get(session_id)
         if not session:
+            logger.warning("[Adapter] resume_session: session %s not found, SILENT RETURN", session_id[:8])
             return
 
         cb_session_id = session.get("codebuddy_session_id")
         if not cb_session_id:
+            logger.warning("[Adapter] resume_session: codebuddy_session_id is None for session %s, SILENT RETURN — CLI did not send system/init?", session_id[:8])
             return
 
         # 终止旧进程
@@ -538,7 +623,7 @@ class CodeBuddyAdapter(AgentHarnessAdapter):
         session["reader_thread"] = reader_thread
         session["_completed"] = False
 
-        logger.info(f"[Adapter] Resumed session={session_id[:8]} with cbc --resume {cb_session_id[:8]}")
+        logger.info("[Adapter] Resumed session=%s cbc --resume %s", session_id[:8], cb_session_id[:8])
 
     async def terminate(self, session_id: str) -> None:
         """终止会话"""

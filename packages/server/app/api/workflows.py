@@ -89,6 +89,8 @@ async def update_workflow(
         updated = await workflow_service.update_workflow(session, wf, body)
     except DAGValidationError as e:
         raise HTTPException(status_code=400, detail=e.errors)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     resp = _to_response(updated)
     await _enrich_workflow_dag(resp, session)
     return APIResponse(data=resp)

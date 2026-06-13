@@ -41,8 +41,9 @@ class ApiClient {
       });
 
       if (!res.ok) {
-        const error = await res.json().catch(() => ({ message: res.statusText }));
-        throw new ApiError(res.status, error.message || "Request failed");
+        const error = await res.json().catch(() => ({ detail: res.statusText }));
+        const msg = error.message || error.detail || "请求失败";
+        throw new ApiError(res.status, msg);
       }
 
       return res.json();
@@ -64,6 +65,16 @@ class ApiClient {
     return this.request<T>(path, {
       method: "POST",
       body: body ? JSON.stringify(body) : undefined,
+      timeoutMs,
+    });
+  }
+
+  /** 上传文件（FormData），不设 Content-Type 让浏览器自动加 boundary */
+  upload<T>(path: string, formData: FormData, timeoutMs?: number) {
+    return this.request<T>(path, {
+      method: "POST",
+      headers: {}, // 清除默认的 application/json
+      body: formData,
       timeoutMs,
     });
   }

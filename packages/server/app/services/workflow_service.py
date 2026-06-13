@@ -45,6 +45,18 @@ async def create_workflow(session: AsyncSession, user_id: uuid.UUID, data: Workf
 async def update_workflow(session: AsyncSession, workflow: Workflow, data: WorkflowUpdate) -> Workflow:
     update_data = data.model_dump(exclude_unset=True)
 
+    # 状态校验：只允许 draft <-> published
+    if "status" in update_data:
+        new_status = update_data["status"]
+        if new_status not in ("draft", "published"):
+            raise ValueError(f"Invalid workflow status: {new_status}. Only 'draft' and 'published' are allowed.")
+        current = workflow.status
+        if current == new_status:
+            # 无变化，移除避免无意义写入
+            del update_data["status"]
+        elif not ((current == "draft" and new_status == "published") or (current == "published" and new_status == "draft")):
+            raise ValueError(f"Invalid status transition: {current} -> {new_status}")
+
     # 如果更新了 DAG，先校验
     if "dag" in update_data and update_data["dag"] is not None:
         dag = DAGDefinition(**update_data["dag"])

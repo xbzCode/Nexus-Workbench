@@ -284,8 +284,10 @@ async def _call_llm(prompt: str) -> str | None:
 
     content = await achat(
         messages=[{"role": "user", "content": prompt}],
+        caller="describe_service",
         temperature=0.3,
-        max_tokens=1500,
+        top_p=0.9,
+        max_tokens=2000,
         timeout=30.0,
     )
     if not content:

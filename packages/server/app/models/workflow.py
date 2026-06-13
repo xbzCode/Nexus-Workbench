@@ -20,5 +20,5 @@ class Workflow(UUIDMixin, TimestampMixin, Base):
     input_schema: Mapped[dict | None] = mapped_column(JSONB)
     output_schema: Mapped[dict | None] = mapped_column(JSONB)
     version: Mapped[int] = mapped_column(Integer, default=1)
-    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft | published | archived
+    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft | published
     precipitated_from: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("execution_paths.id", use_alter=True, name="fk_workflows_precipitated_from"))

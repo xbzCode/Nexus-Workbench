@@ -1,9 +1,9 @@
-"""动态组装服务 — LLM 根据用户意图 + 节点能力描述组装 DAG
+"""动态组装服务 — LLM 根据用户意图 + 全局节点能力描述组装 DAG
 
-第二档匹配：未命中已有工作流时，用 LLM 从已注册节点中挑选并编排 DAG。
+第二档匹配：未命中已有工作流时，用 LLM 从全局已注册节点中挑选并编排 DAG。
 LLM 返回 confidence，低于 ASSEMBLY_CONFIDENCE_THRESHOLD 时视为组装失败。
 
-支持全局组装和 Team scope 组装两种模式。
+无论用户是否选了 Team，动态组装始终从全局节点池挑选。
 """
 
 import json
@@ -18,6 +18,8 @@ from app.schemas.workflow import DAGDefinition, EdgeDef, NodeInstance
 from app.services import node_service
 
 logger = logging.getLogger(__name__)
+
+from app.config.logging import tlog
 
 
 async def assemble(user_input: str, session: AsyncSession) -> MatchResult | None:
@@ -39,46 +41,7 @@ async def assemble(user_input: str, session: AsyncSession) -> MatchResult | None
         return None
 
     logger.info(f"[Assembly] 找到 {len(published)} 个已发布节点: {[n.name for n in published]}")
-    return await _assemble_from_nodes(user_input, published)
-
-
-async def assemble_scoped(
-    user_input: str, session: AsyncSession, team_id: "uuid.UUID"
-) -> MatchResult | None:
-    """Team scope 动态组装 DAG（第二档）
-
-    仅从 Team 关联的 node_definition_ids 中挑选节点编排 DAG。
-
-    Args:
-        user_input: 用户自然语言输入
-        session: DB session
-        team_id: Team ID
-
-    Returns:
-        MatchResult(dynamic_assembly) 或 None
-    """
-    from app.services.team_service import get_team_nodes, get_team
-
-    team = await get_team(session, team_id)
-    if not team:
-        logger.warning(f"[Assembly:Team] Team 不存在: {team_id}")
-        return None
-
-    nodes = await get_team_nodes(session, team)
-    if not nodes:
-        logger.info(f"[Assembly:Team] Team「{team.name}」没有已发布的节点，跳过动态组装")
-        return None
-
-    # 排除 bare-agent
-    published = [n for n in nodes if n.name != "bare-agent"]
-    if not published:
-        logger.info(f"[Assembly:Team] Team「{team.name}」的节点均为 bare-agent，跳过动态组装")
-        return None
-
-    logger.info(
-        f"[Assembly:Team] Team「{team.name}」有 {len(published)} 个可用节点: "
-        f"{[n.name for n in published]}"
-    )
+    tlog().info("ASSEMBLY | 开始动态组装 | nodes=%s", [n.name for n in published])
     return await _assemble_from_nodes(user_input, published)
 
 
@@ -154,6 +117,7 @@ async def _llm_assemble(
     try:
         content = await achat(
             messages=[{"role": "user", "content": prompt}],
+            caller="llm_assemble",
             temperature=0.2,
             max_tokens=500,
             timeout=settings.LLM_TIMEOUT,
@@ -164,17 +128,19 @@ async def _llm_assemble(
 
         logger.info(f"[Assembly] LLM 原始返回: {content[:300]}")
 
-        # 提取 JSON
-        if "```" in content:
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-            content = content.strip()
+        # 提取 JSON（复用 question_detector 的提取器，处理混合文本场景）
+        from app.core.question_detector import extract_json_from_llm_response
+        json_str = extract_json_from_llm_response(content)
+        if not json_str:
+            logger.warning("[Assembly] 无法从 LLM 响应中提取 JSON: %s", content[:200])
+            return None
 
-        parsed = json.loads(content)
+        parsed = json.loads(json_str)
 
         confidence = parsed.get("confidence", 0)
         if not parsed.get("can_assemble") or confidence < threshold:
+            tlog().info("ASSEMBLY | 组装失败 | can_assemble=%s confidence=%.2f reasoning=%s",
+                        parsed.get('can_assemble'), confidence, parsed.get('reasoning', '')[:80])
             logger.info(
                 f"[Assembly] LLM 判断无法组装或置信度不足: "
                 f"confidence={confidence:.2f}, threshold={threshold:.2f}, "

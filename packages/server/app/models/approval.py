@@ -18,9 +18,9 @@ class Approval(UUIDMixin, TimestampMixin, Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     source: Mapped[str] = mapped_column(String(20))  # agent | workflow
     urgency: Mapped[str] = mapped_column(String(20), default="auto_decidable")
-    # auto_decidable | human_required
+    # auto_decidable | normal | high | critical
     type: Mapped[str] = mapped_column(String(20), default="confirm")
-    # confirm | choice | ranking | input
+    # confirm | choice | ranking | input | form
     title: Mapped[str] = mapped_column(String(500))
     description: Mapped[str | None] = mapped_column(Text)
     options: Mapped[list | None] = mapped_column(JSONB)

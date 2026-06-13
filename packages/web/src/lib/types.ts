@@ -120,26 +120,38 @@ export interface Step {
 
 // ── Approval ──
 
+export type ApprovalSource = "agent" | "workflow";
+export type ApprovalUrgency = "auto_decidable" | "normal" | "high" | "critical";
+export type ApprovalType = "confirm" | "choice" | "multi_choice" | "ranking" | "input" | "form";
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired" | "auto_approved";
+
 export interface Approval {
   id: string;
   task_id: string;
   step_id?: string | null;
   user_id: string;
-  source: string; // agent | workflow
-  urgency: string;
-  type: string;
+  source: ApprovalSource;
+  urgency: ApprovalUrgency;
+  type: ApprovalType;
   title: string;
   description?: string | null;
   options?: Record<string, unknown>[] | null;
   input_schema?: Record<string, unknown> | null;
   context_data?: Record<string, unknown> | null;
   validation_result?: Record<string, unknown> | null;
-  status: string; // pending | approved | rejected
+  status: ApprovalStatus;
   result?: Record<string, unknown> | null;
   expires_at?: string | null;
   created_at: string;
   updated_at: string;
   resolved_at?: string | null;
+}
+
+export interface ApprovalListData {
+  items: Approval[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface ApprovalResolve {
@@ -230,6 +242,8 @@ export interface NodeDefResponse {
   output_schema?: Record<string, unknown> | null;
   default_config?: Record<string, unknown> | null;
   skill_md?: string | null;
+  resources?: Record<string, unknown> | null;
+  source_dir?: string | null;
   version: string;
   status: string;
   created_at: string;

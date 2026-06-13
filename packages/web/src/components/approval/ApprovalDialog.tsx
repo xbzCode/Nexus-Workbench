@@ -17,6 +17,15 @@ const URGENCY_STYLE: Record<string, { bg: string; icon: React.ElementType }> = {
   critical: { bg: "bg-red-500/10 text-red-500", icon: AlertTriangle },
 };
 
+const TYPE_LABEL: Record<string, string> = {
+  confirm: "确认",
+  choice: "单选",
+  multi_choice: "多选",
+  ranking: "排序",
+  input: "输入",
+  form: "表单",
+};
+
 interface ApprovalDialogProps {
   approval: Approval;
   onResolve: (id: string, status: "approved" | "rejected", result?: Record<string, unknown>) => void;
@@ -66,7 +75,7 @@ export function ApprovalDialog({ approval, onResolve, onClose }: ApprovalDialogP
                   : "严重"}
               </span>
               {approval.type && (
-                <span className="rounded-md bg-muted px-2 py-1 text-xs">{approval.type}</span>
+                <span className="rounded-md bg-muted px-2 py-1 text-xs">{TYPE_LABEL[approval.type] ?? approval.type}</span>
               )}
               {isAutoDecided && (
                 <span className="rounded-md bg-emerald-500/15 px-2 py-1 text-xs text-emerald-500 font-medium">

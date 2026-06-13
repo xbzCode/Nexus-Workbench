@@ -2,16 +2,47 @@
 
 import uuid
 from datetime import datetime
+from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel
+
+
+class ApprovalSource(str, Enum):
+    AGENT = "agent"
+    WORKFLOW = "workflow"
+
+
+class ApprovalUrgency(str, Enum):
+    AUTO_DECIDABLE = "auto_decidable"
+    NORMAL = "normal"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class ApprovalType(str, Enum):
+    CONFIRM = "confirm"
+    CHOICE = "choice"
+    MULTI_CHOICE = "multi_choice"
+    RANKING = "ranking"
+    INPUT = "input"
+    FORM = "form"
+
+
+class ApprovalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    AUTO_APPROVED = "auto_approved"
 
 
 class ApprovalCreate(BaseModel):
     task_id: uuid.UUID
     step_id: uuid.UUID | None = None
-    source: str  # agent | workflow
-    urgency: str = "auto_decidable"
-    type: str = "confirm"
+    source: ApprovalSource = ApprovalSource.AGENT
+    urgency: ApprovalUrgency = ApprovalUrgency.AUTO_DECIDABLE
+    type: ApprovalType = ApprovalType.CONFIRM
     title: str
     description: str | None = None
     options: list[dict] | None = None
@@ -20,7 +51,7 @@ class ApprovalCreate(BaseModel):
 
 
 class ApprovalResolve(BaseModel):
-    status: str  # approved | rejected
+    status: Literal["approved", "rejected"]
     result: dict | None = None
 
 

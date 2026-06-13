@@ -44,7 +44,7 @@ export default function TaskHeader({
 
   return (
     <div className="shrink-0 border-b border-border bg-background/80 backdrop-blur-sm px-5 py-3">
-      {/* 第一行：标题 + 状态 + 操作（全部一行） */}
+      {/* 第一行：面包屑 + 标题 + 状态 + 操作 */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" className="-ml-1.5 h-8 w-8 shrink-0" onClick={() => router.push("/tasks")}>
           <ArrowLeft className="h-4 w-4" />
@@ -59,8 +59,8 @@ export default function TaskHeader({
           {(isRunning || isPaused) && (
             <span className="flex items-center gap-1.5 text-xs">
               {isConnected
-                ? (<><span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" /></span><span className="text-emerald-400 font-medium">Live</span></>)
-                : (<><WifiOff className="h-3 w-3 text-muted-foreground" /><span className="text-muted-foreground">Offline</span></>)
+                ? (<><span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" /></span><span className="text-emerald-400 font-medium">实时</span></>)
+                : (<><WifiOff className="h-3 w-3 text-muted-foreground" /><span className="text-muted-foreground">离线</span></>)
               }
             </span>
           )}
@@ -70,26 +70,26 @@ export default function TaskHeader({
         <div className="flex gap-2 shrink-0">
           {task.status === "pending" && (
             <Button size="sm" onClick={() => onAction("start", "start")} disabled={actionLoading === "start"}>
-              {actionLoading === "start" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1.5 h-3.5 w-3" />}Start
+              {actionLoading === "start" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1.5 h-3.5 w-3" />}启动
             </Button>
           )}
           {isRunning && (
             <>
               <Button variant="outline" size="sm" onClick={() => onAction("pause", "pause")} disabled={actionLoading === "pause"}>
-                {actionLoading === "pause" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Pause className="mr-1.5 h-3.5 w-3.5" />}Pause
+                {actionLoading === "pause" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Pause className="mr-1.5 h-3.5 w-3.5" />}暂停
               </Button>
               <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => onAction("cancel", "cancel")} disabled={actionLoading === "cancel"}>
-                {actionLoading === "cancel" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <XCircle className="mr-1.5 h-3.5 w-3.5" />}Cancel
+                {actionLoading === "cancel" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <XCircle className="mr-1.5 h-3.5 w-3.5" />}取消
               </Button>
             </>
           )}
           {isPaused && (
             <>
               <Button size="sm" onClick={() => onAction("resume", "resume")} disabled={actionLoading === "resume"}>
-                {actionLoading === "resume" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}Resume
+                {actionLoading === "resume" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}恢复
               </Button>
               <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => onAction("cancel", "cancel")} disabled={actionLoading === "cancel"}>
-                {actionLoading === "cancel" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <XCircle className="mr-1.5 h-3.5 w-3.5" />}Cancel
+                {actionLoading === "cancel" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <XCircle className="mr-1.5 h-3.5 w-3.5" />}取消
               </Button>
             </>
           )}
@@ -98,9 +98,9 @@ export default function TaskHeader({
 
       {/* 第二行：时间元信息 */}
       <div className="ml-9 flex items-center gap-x-4 gap-y-0 mt-1 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(task.created_at).toLocaleString("zh-CN")}</span>
-        {task.started_at && <span>Started: {new Date(task.started_at).toLocaleString("zh-CN")}</span>}
-        {task.completed_at && <span>Done: {new Date(task.completed_at).toLocaleString("zh-CN")}</span>}
+        <span className="flex items-center gap-1"><Clock className="h-3 w-3" />创建于 {new Date(task.created_at).toLocaleString("zh-CN")}</span>
+        {task.started_at && <span>启动: {new Date(task.started_at).toLocaleString("zh-CN")}</span>}
+        {task.completed_at && <span>完成: {new Date(task.completed_at).toLocaleString("zh-CN")}</span>}
       </div>
 
       {/* 第三行：DAG 进度条 */}

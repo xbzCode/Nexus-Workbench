@@ -1,4 +1,4 @@
-/** LeftBottomPanel — 左侧底部可折叠 Tab 面板（日志/审批/快照/路径/文件） */
+/** LeftBottomPanel — 左侧底部可折叠 Tab 面板（时间线/审批/快照/路径/文件） */
 
 "use client";
 
@@ -6,15 +6,16 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import ApprovalCard from "@/components/approval/ApprovalCard";
+import TimelineView from "@/components/task/TimelineView";
 import { Button } from "@/components/ui/button";
-import type { Approval, SnapshotItem, ExecutionPathItem, FileEntry } from "@/lib/types";
+import type { Approval, Step, SnapshotItem, ExecutionPathItem, FileEntry } from "@/lib/types";
 import {
-  Bell, ScrollText, Camera, Route, File as FileIcon, FileText, Folder,
-  ChevronUp, ChevronDown, RotateCcw, Star, Download, Loader2,
+  Bell, GitBranch, Camera, Route, File as FileIcon, FileText, Folder,
+  ChevronDown, RotateCcw, Star, Download, Loader2,
   FileCode, Eye,
 } from "lucide-react";
 
-type BottomTab = "log" | "approval" | "snapshots" | "paths" | "files";
+type BottomTab = "timeline" | "approval" | "snapshots" | "paths" | "files";
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -30,12 +31,15 @@ function getFileIcon(fp: string) {
 
 interface LeftBottomPanelProps {
   taskId: string;
+  steps: Step[];
   approvals: Approval[];
   pendingApprovals: Approval[];
   snapshots: SnapshotItem[];
   execPaths: ExecutionPathItem[];
   files: FileEntry[];
-  logEvents: { event: string; data: Record<string, unknown>; ts?: string }[];
+  taskStartedAt: string | null;
+  taskCompletedAt: string | null;
+  taskStatus: string;
   nodeNameMap?: Record<string, string>;
 
   // Callbacks
@@ -52,14 +56,15 @@ const PANEL_HEIGHT_EXPANDED = 280;
 const PANEL_HEIGHT_COLLAPSED = 36;
 
 export default function LeftBottomPanel({
-  taskId, approvals, pendingApprovals, snapshots, execPaths, files, logEvents, nodeNameMap,
+  taskId, steps, approvals, pendingApprovals, snapshots, execPaths, files,
+  taskStartedAt, taskCompletedAt, taskStatus, nodeNameMap,
   onResolveApproval, onApprovalDetail, onRollback, onPrecipitate, onRatePath, onPreviewFile, actionLoading,
 }: LeftBottomPanelProps) {
-  const [activeTab, setActiveTab] = useState<BottomTab>("log");
+  const [activeTab, setActiveTab] = useState<BottomTab>("timeline");
   const [isExpanded, setIsExpanded] = useState(false); // 默认折叠
 
   const TABS: { key: BottomTab; label: string; icon: React.ElementType; badge?: number }[] = [
-    { key: "log", label: "日志", icon: ScrollText },
+    { key: "timeline", label: "时间线", icon: GitBranch },
     { key: "approval", label: "审批", icon: Bell, badge: pendingApprovals.length || undefined },
     { key: "snapshots", label: "快照", icon: Camera, badge: snapshots.length || undefined },
     { key: "paths", label: "路径", icon: Route, badge: execPaths.length || undefined },
@@ -141,89 +146,15 @@ export default function LeftBottomPanel({
       {/* Tab 内容 */}
       {isExpanded && (
         <div className="flex-1 overflow-y-auto px-4 py-2 min-h-0">
-          {/* Logs */}
-          {activeTab === "log" && (
-            <div className="font-mono text-[11px] space-y-px">
-              {logEvents.length === 0 && (
-                <div className="text-muted-foreground py-6 text-center text-[11px]">暂无日志</div>
-              )}
-              {logEvents.map((evt, i) => {
-                const isNodeEvent = evt.event.startsWith("dag:node_") || evt.event.startsWith("node:");
-                const isApprovalQuestion = evt.event === "approval:question";
-                const isApprovalReply = evt.event === "approval:approved" || evt.event === "approval:rejected";
-                const isProgressEvent = evt.event === "node:progress" || evt.event === "node:thinking";
-                const isRiskyEvent = evt.event === "node:risky_tool";
-
-                // 提取有意义的日志内容
-                const d = evt.data;
-                const content = d.content ? String(d.content) : "";
-                const text = d.text ? String(d.text) : "";
-                const error = d.error ? String(d.error) : "";
-                const description = d.description ? String(d.description) : "";
-                const result = d.result ? String(d.result) : "";
-                const toolName = d.tool_name ? String(d.tool_name) : "";
-
-                // 构建展示内容
-                let displayText = "";
-                if (isApprovalQuestion) {
-                  displayText = description || String(d.title ?? "");
-                } else if (isApprovalReply) {
-                  displayText = result || (evt.event === "approval:approved" ? "已批准" : "已拒绝");
-                } else {
-                  displayText = content || text || error || description || "";
-                }
-                if (isRiskyEvent && !displayText && toolName) {
-                  displayText = `高风险工具: ${toolName}`;
-                }
-
-                // Node ID 标签
-                const nodeId = d.node_id ? String(d.node_id) : "";
-                const nodeLabel = nodeId && isNodeEvent
-                  ? `Node: ${nodeNameMap?.[nodeId] ?? nodeId.slice(0, 16)}`
-                  : "";
-
-                // 事件标签文字（中文，替代原始 event name）
-                let eventLabel = evt.event;
-                if (isApprovalQuestion) eventLabel = "Agent 提问";
-                else if (evt.event === "approval:approved") eventLabel = "用户回复 ✓";
-                else if (evt.event === "approval:rejected") eventLabel = "用户回复 ✗";
-                else if (evt.event.includes("completed")) eventLabel = "节点完成";
-                else if (evt.event.includes("failed")) eventLabel = "节点失败";
-                else if (evt.event.includes("started")) eventLabel = "节点启动";
-
-                return (
-                  <div key={i} className="flex items-start gap-2 py-0.5 text-muted-foreground hover:bg-surface-hover/40 rounded px-1.5 -mx-1.5 transition-colors">
-                    <span className="shrink-0 text-muted-foreground/25 w-14 text-right tabular-nums leading-4">
-                      {evt.ts ? new Date(evt.ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--:--:--"}
-                    </span>
-                    <span className={cn(
-                      "shrink-0 truncate font-medium leading-4",
-                      isProgressEvent ? "w-[90px] text-sky-400" :
-                      isApprovalQuestion ? "w-[90px] text-purple-400" :
-                      isApprovalReply ? "w-[90px] text-emerald-400" :
-                      isRiskyEvent ? "w-[90px] text-red-400" :
-                      evt.event.includes("failed") || evt.event.includes("error") ? "w-[90px] text-red-400" :
-                      "w-[90px] text-foreground/60"
-                    )} title={evt.event}>{eventLabel}</span>
-                    {nodeLabel && (
-                      <span className="shrink-0 truncate text-foreground/60 leading-4" style={{ maxWidth: 120 }} title={nodeLabel}>
-                        {nodeLabel}
-                      </span>
-                    )}
-                    {displayText && (
-                      <span className={cn(
-                        "break-all leading-4 line-clamp-1 flex-1 min-w-0",
-                        isApprovalQuestion ? "text-purple-400" :
-                        isApprovalReply ? "text-emerald-400" :
-                        isProgressEvent ? "text-sky-400" :
-                        error ? "text-red-400" :
-                        "text-foreground/70"
-                      )} title={displayText}>{displayText}</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+          {/* Timeline */}
+          {activeTab === "timeline" && (
+            <TimelineView
+              steps={steps}
+              taskStartedAt={taskStartedAt}
+              taskCompletedAt={taskCompletedAt}
+              taskStatus={taskStatus}
+              nodeNameMap={nodeNameMap ?? {}}
+            />
           )}
 
           {/* Approvals */}

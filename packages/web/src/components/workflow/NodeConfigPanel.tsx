@@ -1,4 +1,6 @@
-/** 节点配置面板 — 侧边栏：基本字段 + JSON 编辑器 */
+/** 节点配置面板 — 侧边栏：基本字段 + JSON 编辑器
+ * 隐藏 Position/Hooks 等技术细节，面向用户友好
+ */
 
 "use client";
 
@@ -41,7 +43,7 @@ export function NodeConfigPanel({
   const schemaFields = useMemo(() => {
     if (!configSchema || typeof configSchema !== "object") return [];
     const props = (configSchema as Record<string, unknown>).properties as
-      | Record<string, { title?: string; type?: string; description?: string; default?: unknown }>
+      | Record<string, { title?: string; type?: string; description?: string; default?: unknown; enum?: string[] }>
       | undefined;
     if (!props) return [];
     return Object.entries(props).map(([key, val]) => ({
@@ -50,6 +52,7 @@ export function NodeConfigPanel({
       type: val.type ?? "string",
       description: val.description ?? "",
       defaultValue: val.default,
+      enumValues: val.enum,
     }));
   }, [configSchema]);
 
@@ -73,8 +76,18 @@ export function NodeConfigPanel({
     try {
       let parsed: Record<string, unknown>;
       if (hasFormFields && !showJson) {
-        // 从表单构建
-        parsed = { ...formValues };
+        // 从表单构建，按类型转换
+        parsed = {};
+        for (const f of schemaFields) {
+          const raw = formValues[f.key];
+          if (f.type === "boolean") {
+            parsed[f.key] = raw === "true";
+          } else if (f.type === "number" || f.type === "integer") {
+            parsed[f.key] = Number(raw) || 0;
+          } else {
+            parsed[f.key] = raw;
+          }
+        }
       } else {
         // 从 JSON 解析
         parsed = JSON.parse(configJson);
@@ -132,6 +145,17 @@ export function NodeConfigPanel({
                     <option value="true">true</option>
                     <option value="false">false</option>
                   </select>
+                ) : field.enumValues && field.enumValues.length > 0 ? (
+                  <select
+                    value={formValues[field.key] ?? ""}
+                    onChange={(e) => handleFormChange(field.key, e.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground focus:border-brand focus:outline-none"
+                  >
+                    <option value="">请选择</option>
+                    {field.enumValues.map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
                 ) : (
                   <input
                     value={formValues[field.key] ?? ""}
@@ -184,37 +208,6 @@ export function NodeConfigPanel({
             {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
           </div>
         )}
-
-        {/* Position info */}
-        <div>
-          <label className="text-xs font-medium text-muted-foreground block mb-1.5">位置</label>
-          <div className="flex gap-2 text-xs">
-            <span className="px-2 py-1 rounded bg-muted text-muted-foreground">
-              x: {node.position?.x ?? 0}
-            </span>
-            <span className="px-2 py-1 rounded bg-muted text-muted-foreground">
-              y: {node.position?.y ?? 0}
-            </span>
-          </div>
-        </div>
-
-        {/* Hooks info */}
-        <div>
-          <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-            钩子 ({node.hooks?.length ?? 0})
-          </label>
-          {(node.hooks?.length ?? 0) === 0 ? (
-            <p className="text-xs text-muted-foreground/60">暂无钩子</p>
-          ) : (
-            <div className="space-y-1">
-              {node.hooks?.map((h, i) => (
-                <div key={i} className="px-2 py-1 rounded bg-muted text-xs text-muted-foreground">
-                  {JSON.stringify(h)}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Footer */}

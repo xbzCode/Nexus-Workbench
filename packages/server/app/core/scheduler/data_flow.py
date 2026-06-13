@@ -3,6 +3,11 @@
 两层模式：
 1. 语义传递（默认）：上游 output 的 {status, summary, result} → 下游 input 的 {previous_status, previous_output, previous_result}
 2. 精确映射（高级）：data_mapping 按 $prev.output, $node.{id}.output, $workflow.input 解析
+
+Resume 感知：
+- 当下游节点使用 --resume 继承上游 CLI 会话时，Agent 已拥有上游节点的完整对话上下文
+- 此时无需再传递 previous_output / previous_summaries 等冗余数据，避免上下文膨胀
+- 只传递增量信息（状态、精炼结果），让 Agent 从已有上下文中获取详情
 """
 
 from __future__ import annotations
@@ -18,6 +23,8 @@ def compute_node_input(
     node_id: str,
     node_outputs: dict[str, dict[str, Any]],
     workflow_input: dict[str, Any] | None = None,
+    *,
+    is_resume: bool = False,
 ) -> dict[str, Any]:
     """计算节点的输入数据
 
@@ -26,6 +33,8 @@ def compute_node_input(
         node_id: 当前节点 ID
         node_outputs: 已完成节点的输出 {node_id: output_dict}
         workflow_input: 工作流初始输入
+        is_resume: 下游节点是否通过 --resume 继承了上游 CLI 会话。
+                   Resume 模式下 Agent 已有上游上下文，语义传递时会省略冗余字段。
 
     Returns:
         节点的输入 dict
@@ -48,31 +57,56 @@ def compute_node_input(
             input_data.update(mapped)
         else:
             # 语义传递模式
-            input_data.update(_semantic_transfer(source_output))
+            input_data.update(_semantic_transfer(source_output, is_resume=is_resume))
 
     # 汇总所有上游的 summary（用于拼入 prompt）
-    summaries = []
-    for edge in in_edges:
-        source_output = node_outputs.get(edge.source_id, {})
-        if summary := source_output.get("summary"):
-            summaries.append(f"[{edge.source_id}]: {summary}")
-    if summaries:
-        input_data["previous_summaries"] = "\n".join(summaries)
+    # Resume 模式下 Agent 已在上下文中看到上游输出，不需要重复传递
+    if not is_resume:
+        summaries = []
+        for edge in in_edges:
+            source_output = node_outputs.get(edge.source_id, {})
+            if summary := source_output.get("summary"):
+                summaries.append(f"[{edge.source_id}]: {summary}")
+        if summaries:
+            input_data["previous_summaries"] = "\n".join(summaries)
 
     return input_data
 
 
-def _semantic_transfer(source_output: dict[str, Any]) -> dict[str, Any]:
-    """语义传递 — 自动提取上游关键字段"""
+def _semantic_transfer(source_output: dict[str, Any], *, is_resume: bool = False) -> dict[str, Any]:
+    """语义传递 — 自动提取上游关键字段
+
+    数据优先级：result > summary
+    - result 是 Agent 明确产出的精炼输出（如 SKILL 要求的结构化结果）
+    - summary 是引擎拼凑的摘要（可能包含对话噪音），作为兜底
+
+    Resume 感知：
+    - is_resume=True 时，Agent 已有上游的完整对话上下文，无需传递任何输出数据
+    - 只传 previous_status 供下游快速判断上游执行状态即可
+    """
     result: dict[str, Any] = {}
+
+    # 状态：始终传递
     if "status" in source_output:
         result["previous_status"] = source_output["status"]
-    if "summary" in source_output:
-        result["previous_output"] = source_output["summary"]
+
+    if is_resume:
+        # Resume 模式：Agent 已有上游完整对话上下文，无需传递输出数据
+        return result
+
+    # 非 resume 模式：传递完整上下文
     if "result" in source_output:
+        # result 优先：它是 Agent 明确产出的精炼输出
         result["previous_result"] = source_output["result"]
+        result["previous_output"] = source_output["result"]
+    elif "summary" in source_output:
+        # 无 result：用 summary 兜底
+        result["previous_output"] = source_output["summary"]
+
+    # detail：仅在非 resume 模式下传递
     if "detail" in source_output:
         result["previous_detail"] = source_output["detail"]
+
     return result
 
 

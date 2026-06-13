@@ -22,7 +22,7 @@ export default function TaskQueue({
   if (tasks.length === 0) return null;
 
   return (
-    <div className="mt-6 w-full max-w-[560px]">
+    <div className="mt-6 w-full max-w-[580px]">
       <div className="flex items-center gap-2 mb-2.5">
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Tasks</span>
         <span className="text-[10px] text-muted-foreground/50">{tasks.length}</span>

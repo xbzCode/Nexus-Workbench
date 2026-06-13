@@ -1,7 +1,8 @@
-/** DAG 自定义边 — 带条件表达式标签 + 选中高亮 */
+/** DAG 自定义边 — memo 优化 + 条件表达式标签 */
 
 "use client";
 
+import { memo } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -16,7 +17,7 @@ export interface DagEdgeData {
   [key: string]: unknown;
 }
 
-export function DagEdgeComponent({
+export const DagEdgeComponent = memo(function DagEdgeComponent({
   id,
   sourceX,
   sourceY,
@@ -46,9 +47,9 @@ export function DagEdgeComponent({
         path={edgePath}
         style={{
           stroke: selected ? "var(--color-brand)" : "var(--color-muted-foreground)",
-          strokeWidth: selected ? 2.5 : 1.5,
+          strokeWidth: selected ? 2 : 1.5,
           strokeDasharray: condition ? "6 3" : undefined,
-          opacity: selected ? 1 : 0.6,
+          opacity: selected ? 1 : 0.5,
         }}
       />
       {/* 条件表达式标签 */}
@@ -79,4 +80,4 @@ export function DagEdgeComponent({
       )}
     </>
   );
-}
+});
